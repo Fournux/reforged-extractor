@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo.png" alt="Reforged Extractor" width="600">
+  <img src="./logo.png" alt="Reforged Extractor" width="500">
   <p><strong>A Rust toolkit for extracting structured Guild Wars game data.</strong></p>
   <p>
     <img alt="Rust 1.97.1" src="https://img.shields.io/badge/Rust-1.97.0-000000?logo=rust&amp;logoColor=white">
