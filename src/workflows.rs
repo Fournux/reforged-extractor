@@ -12,7 +12,7 @@ use crate::{
     io_util::{StagedDirectory, write_json},
     items, npcs, quests, skills, vendors,
 };
-const CAPTURE_METADATA_JSONL_FILENAME: &str = "tyria_capture.jsonl";
+const CAPTURE_METADATA_JSONL_FILENAME: &str = "reforged_capture.jsonl";
 
 fn merge_capture_inputs(inputs: &[PathBuf], staging: &Path, label: &str) -> Result<PathBuf> {
     if inputs.is_empty() {
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn merges_capture_files_by_capture_sequence() -> Result<()> {
         let root = std::env::temp_dir().join(format!(
-            "tyria-capture-merge-{}-{}",
+            "reforged-capture-merge-{}-{}",
             std::process::id(),
             TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
@@ -329,18 +329,18 @@ mod tests {
     #[test]
     fn rejects_capture_without_current_metadata_sidecar() -> Result<()> {
         let root = std::env::temp_dir().join(format!(
-            "tyria-capture-current-{}-{}",
+            "reforged-capture-current-{}-{}",
             std::process::id(),
             TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root)?;
         let input = root.join("items.jsonl");
         fs::write(&input, "{}\n")?;
-        fs::write(root.join("tyria_capture.json"), "{}\n")?;
+        fs::write(root.join("reforged_capture.json"), "{}\n")?;
 
         let error = merge_capture_inputs(std::slice::from_ref(&input), &root, "test")
             .expect_err("old metadata sidecar must be rejected");
-        assert!(error.to_string().contains("tyria_capture.jsonl"));
+        assert!(error.to_string().contains("reforged_capture.jsonl"));
 
         fs::write(
             root.join(CAPTURE_METADATA_JSONL_FILENAME),
@@ -352,7 +352,7 @@ mod tests {
         )?;
         let error = merge_capture_inputs(std::slice::from_ref(&input), &root, "test")
             .expect_err("inline metadata must be rejected");
-        assert!(error.to_string().contains("belongs in tyria_capture.jsonl"));
+        assert!(error.to_string().contains("belongs in reforged_capture.jsonl"));
         fs::remove_dir_all(root)?;
         Ok(())
     }

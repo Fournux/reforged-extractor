@@ -190,7 +190,7 @@ Reward components are nested in `QUEST_DESCRIPTION` EncStrings. Confirmed wrappe
 The corpus is append-only and session-scoped. New rows carry `session_id`;
 world-packet schema/status rows also carry the client PE timestamp.
 `AGENT_DESPAWNED` and `INSTANCE_LOAD_INFO` prevent transient agent joins from
-leaking across despawns or map changes. The sibling `tyria_capture.jsonl`
+leaking across despawns or map changes. The sibling `reforged_capture.jsonl`
 metadata stream stores packet schemas, hook status, and capture-health
 snapshots. Health is appended only when a loss or write counter changes and is
 never mixed into packet JSONLs. Missing health metadata is not evidence of zero
@@ -232,7 +232,7 @@ Gw.dat -> localized text and model/resource bytes addressed by observed file IDs
 ### First offline NPC corpus
 
 `extract npcs` consumes the verified NPC, spawn, and instance packets from the
-dedicated `tyria_npcs.jsonl` stream. The first generated `npcs/npcs.json`
+dedicated `reforged_npcs.jsonl` stream. The first generated `npcs/npcs.json`
 contains 90 stable NPC model IDs and 39 distinct model file IDs. All 90 entries
 retain model/skin IDs, packed visual adjustment, appearance, flags, primary
 profession, and default level. Seventy-five models have observed map relations
@@ -311,16 +311,16 @@ intentionally remains unnamed until that instance is recaptured.
 ### Session capture stream separation
 
 Format 5 gives every persisted data contract its own session file:
-`tyria_items.jsonl`, `tyria_quests.jsonl`, `tyria_npcs.jsonl`,
-`tyria_vendor_context.jsonl`, `tyria_collectors.jsonl`,
-`tyria_merchants.jsonl`, `tyria_crafters.jsonl`, and
-`tyria_skill_trainers.jsonl`. The vendor-context stream contains only shared
+`reforged_items.jsonl`, `reforged_quests.jsonl`, `reforged_npcs.jsonl`,
+`reforged_vendor_context.jsonl`, `reforged_collectors.jsonl`,
+`reforged_merchants.jsonl`, `reforged_crafters.jsonl`, and
+`reforged_skill_trainers.jsonl`. The vendor-context stream contains only shared
 merchant-window/owner packets; merchant, crafter, trainer, and collector rows
 each remain in their own file.
 
 `world_packet_schema` and `world_packet` cover the packet families used for
 quests, NPCs, dialogue, maps, and vendor context. Schemas, hook status, and
-health are stored once in `tyria_capture.jsonl`; each data stream contains only
+health are stored once in `reforged_capture.jsonl`; each data stream contains only
 its own records. Extraction requires that sidecar and
 `capture_format_version: 5`. There is no fallback for inline metadata or
 pre-cutover captures.
@@ -341,11 +341,11 @@ skill-trainer.
 ### Complete item and active-quest capture
 
 Format 5 makes full runtime item evidence part of the standard
-`tyria_items.jsonl` contract. Each observed ItemGeneral update emits the full
+`reforged_items.jsonl` contract. Each observed ItemGeneral update emits the full
 decoded packet fields plus the runtime item's name and `info_string` EncStrings.
 The same stream records text-reference IDs whenever the client decoder observes
 an EncString; this passive decoder coverage is not assumed exhaustive.
-`TYRIA_VERBOSE_JSONL` adds diagnostic packet traces only; it no longer selects
+`REFORGED_VERBOSE_JSONL` adds diagnostic packet traces only; it no longer selects
 a different item dataset.
 
 The consumer prefers a client-observed decoder sequence when its EncString
@@ -403,7 +403,7 @@ libraries, leaving the x86 import libraries unavailable. Setting
 `XWIN_ARCH=x86` for the release `cargo xwin build` produced the 32-bit injector
 and DLL.
 
-Session `1784744036204` loaded `tyria_sniffer.dll` from the repository through
+Session `1784744036204` loaded `reforged_sniffer.dll` from the repository through
 Wine's `Z:` mapping. Session `1784745070077` loaded a copied DLL beside
 `Gw.exe`, without a `Z:` path. Both sessions installed the text decoder, item,
 quest request, world, and vendor hook groups for client PE timestamp

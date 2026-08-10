@@ -507,7 +507,7 @@ mod tests {
     fn temp_log(name: &str) -> std::path::PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "tyria-capture-{name}-{}-{id}.jsonl",
+            "reforged-capture-{name}-{}-{id}.jsonl",
             std::process::id()
         ))
     }

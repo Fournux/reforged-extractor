@@ -6,7 +6,7 @@ use std::fs;
 fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
 
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -69,7 +69,7 @@ fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> 
 #[test]
 fn packet_log_text_decode_ids_rows_feed_name_id_lookup() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"kind\":\"text_decode_ids\",\"language_id\":0,\"encoded_hex\":\"6401c8010000\",\"decoded_ids\":[100,200]}\n",
@@ -85,7 +85,7 @@ fn packet_log_text_decode_ids_rows_feed_name_id_lookup() -> anyhow::Result<()> {
 #[test]
 fn packet_log_encoded_names_feed_compact_record_seeds() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"kind\":\"text_decode_ids\",\"language_id\":8,\"encoded_hex\":\"a82157d18fb56f160000\",\"decoded_ids\":[8360]}\n",
@@ -221,7 +221,7 @@ fn encstring_item_subset_predictor_matches_local_asyncdecode_corpus() -> anyhow:
 #[test]
 fn packet_log_text_decode_trace_rows_feed_compact_text_record_lookup() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -292,7 +292,7 @@ fn compact_record_seed_decodes_japanese_width_16() -> anyhow::Result<()> {
 fn packet_log_items_json_deduplicates_model_file_variant_and_prefers_named_row()
 -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -326,7 +326,7 @@ fn packet_log_items_json_deduplicates_model_file_variant_and_prefers_named_row()
 #[test]
 fn packet_log_items_json_keeps_distinct_model_file_variants() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -365,7 +365,7 @@ fn packet_log_items_json_keeps_distinct_model_file_variants() -> anyhow::Result<
 #[test]
 fn packet_log_names_can_fall_back_to_model_file_table() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":1,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32}\n",
@@ -390,7 +390,7 @@ fn packet_log_names_can_fall_back_to_model_file_table() -> anyhow::Result<()> {
 #[test]
 fn packet_log_exact_name_ids_fill_missing_languages_from_model_file_table() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":1,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_id\":100,\"enc_name_hex\":\"64010000\"}\n",
@@ -422,7 +422,7 @@ fn packet_log_exact_name_ids_fill_missing_languages_from_model_file_table() -> a
 #[test]
 fn compact_item_row_resolves_name_and_description_text_ids() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_items.jsonl");
+    let packet_log = temp.path().join("reforged_items.jsonl");
     fs::write(
         &packet_log,
         "{\"model_id\":32,\"model_file_id\":111926,\"item_type\":3,\"materials\":0,\"name_text_id\":100,\"enc_name_hex\":\"64010000\",\"desc_enc_hex\":\"64010000\"}\n",
@@ -454,7 +454,7 @@ fn compact_item_row_resolves_name_and_description_text_ids() -> anyhow::Result<(
 #[test]
 fn packet_log_encoded_name_hex_expands_template_names() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_text_id\":100,\"enc_name_hex\":\"6401c8010000\"}\n",
@@ -529,7 +529,7 @@ fn python_itemgeneral_rows_match_runtime_export_schema() -> anyhow::Result<()> {
 #[test]
 fn packet_log_desc_enc_hex_expands_description_templates() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_id\":100,\"enc_name_hex\":\"64010000\",\"desc_enc_hex\":\"2c0290020000\"}\n",
@@ -578,7 +578,7 @@ fn packet_log_desc_enc_hex_expands_description_templates() -> anyhow::Result<()>
 #[test]
 fn runtime_item_strings_attach_description_without_extra_item_row() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -628,7 +628,7 @@ fn runtime_item_strings_attach_description_without_extra_item_row() -> anyhow::R
 #[test]
 fn runtime_item_strings_complete_name_can_name_item() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -664,7 +664,7 @@ fn runtime_item_strings_complete_name_can_name_item() -> anyhow::Result<()> {
 #[test]
 fn text_decode_ids_match_runtime_hex_with_extra_null() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -694,7 +694,7 @@ fn text_decode_ids_match_runtime_hex_with_extra_null() -> anyhow::Result<()> {
 #[test]
 fn decoded_description_rows_attach_multilingual_descriptions() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -728,7 +728,7 @@ fn decoded_description_rows_attach_multilingual_descriptions() -> anyhow::Result
 #[test]
 fn packet_log_merged_single_decoded_id_can_name_item() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\",\"decoded_ids\":[9396]}\n",
@@ -753,7 +753,7 @@ fn packet_log_merged_single_decoded_id_can_name_item() -> anyhow::Result<()> {
 #[test]
 fn unresolved_encoded_name_hex_does_not_use_unsafe_local_fallback() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
@@ -780,7 +780,7 @@ fn unresolved_encoded_name_hex_does_not_use_unsafe_local_fallback() -> anyhow::R
 #[test]
 fn unresolved_encoded_name_hex_can_use_model_file_fallback() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
@@ -811,7 +811,7 @@ fn unresolved_encoded_name_hex_can_use_model_file_fallback() -> anyhow::Result<(
 #[test]
 fn resolved_text_id_can_name_compact_item() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
@@ -837,7 +837,7 @@ fn resolved_text_id_can_name_compact_item() -> anyhow::Result<()> {
 fn packet_log_uses_official_multilingual_names_for_known_itemgeneral_samples() -> anyhow::Result<()>
 {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -908,7 +908,7 @@ fn packet_log_uses_official_multilingual_names_for_known_itemgeneral_samples() -
 #[test]
 fn official_decoded_names_override_unsafe_local_guesses() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -938,7 +938,7 @@ fn official_decoded_names_override_unsafe_local_guesses() -> anyhow::Result<()> 
 #[test]
 fn client_decoded_names_are_opt_in() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -981,7 +981,7 @@ fn client_decoded_names_are_opt_in() -> anyhow::Result<()> {
 #[test]
 fn official_decoded_names_match_reused_item_id_by_model() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -1011,7 +1011,7 @@ fn official_decoded_names_match_reused_item_id_by_model() -> anyhow::Result<()> 
 #[test]
 fn official_current_language_can_validate_local_multilingual_names() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -1046,7 +1046,7 @@ fn official_current_language_can_validate_local_multilingual_names() -> anyhow::
 fn official_current_language_can_validate_name_id_after_encoded_decode_miss() -> anyhow::Result<()>
 {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(
@@ -1080,7 +1080,7 @@ fn official_current_language_can_validate_name_id_after_encoded_decode_miss() ->
 #[test]
 fn official_generic_names_override_invalid_client_rows() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
-    let packet_log = temp.path().join("tyria_packets.jsonl");
+    let packet_log = temp.path().join("reforged_packets.jsonl");
     fs::write(
         &packet_log,
         concat!(

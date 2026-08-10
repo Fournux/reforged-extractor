@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo.png" alt="TyriaExtractor" width="600">
+  <img src="./logo.png" alt="Reforged Extractor" width="600">
   <p><strong>A Rust toolkit for extracting structured Guild Wars game data.</strong></p>
   <p>
     <img alt="Rust 1.97.1" src="https://img.shields.io/badge/Rust-1.97.0-000000?logo=rust&amp;logoColor=white">
@@ -13,11 +13,11 @@
 
 ```bash
 # Build the native extractor
-cargo build --release -p tyria-extractor-rs
+cargo build --release -p reforged-extractor
 
 # (Windows optional) Build sniffer & injector for live runtime captures
 rustup target add i686-pc-windows-msvc
-cargo build --release --target i686-pc-windows-msvc -p tyria_injector -p tyria_sniffer
+cargo build --release --target i686-pc-windows-msvc -p reforged_injector -p reforged_sniffer
 ```
 
 ### 2. Extract Data from `Gw.dat`
@@ -34,16 +34,16 @@ cargo run --release -- extract images --snapshot "C:\path\to\Gw.dat"
 For datasets requiring runtime joins, inject the sniffer while the client is running:
 
 ```powershell
-.\target\i686-pc-windows-msvc\release\tyria_injector.exe Gw.exe .\target\i686-pc-windows-msvc\release\tyria_sniffer.dll
+.\target\i686-pc-windows-msvc\release\reforged_injector.exe Gw.exe .\target\i686-pc-windows-msvc\release\reforged_sniffer.dll
 ```
 
 Then extract using the generated capture logs:
 
 ```powershell
-cargo run --release -- extract items --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\tyria_items.jsonl"
-cargo run --release -- extract npcs --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\tyria_npcs.jsonl"
-cargo run --release -- extract quests --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\tyria_quests.jsonl" --item-log ".\captures\<session-id>\tyria_items.jsonl"
-cargo run --release -- extract vendors --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\tyria_vendor_context.jsonl"
+cargo run --release -- extract items --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\reforged_items.jsonl"
+cargo run --release -- extract npcs --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\reforged_npcs.jsonl"
+cargo run --release -- extract quests --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\reforged_quests.jsonl" --item-log ".\captures\<session-id>\reforged_items.jsonl"
+cargo run --release -- extract vendors --snapshot "C:\path\to\Gw.dat" --packet-log ".\captures\<session-id>\reforged_vendor_context.jsonl"
 ```
 
 _(Or use `make regen` / `make extract-vendors` to run automatically with the latest capture)._
@@ -74,4 +74,4 @@ output/
 
 ## Legal
 
-TyriaExtractor is an unofficial, independent tool. Guild Wars and all game assets are property of ArenaNet / NCSOFT. Software licensed under the [MIT License](LICENSE).
+Reforged Extractor is an unofficial, independent tool. Guild Wars and all game assets are property of ArenaNet / NCSOFT. Software licensed under the [MIT License](LICENSE).

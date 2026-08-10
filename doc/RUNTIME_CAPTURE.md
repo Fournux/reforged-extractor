@@ -29,8 +29,8 @@ default `cargo-xwin` architecture set does not include x86.
 The command produces:
 
 ```text
-target/i686-pc-windows-msvc/release/tyria_injector.exe
-target/i686-pc-windows-msvc/release/tyria_sniffer.dll
+target/i686-pc-windows-msvc/release/reforged_injector.exe
+target/i686-pc-windows-msvc/release/reforged_sniffer.dll
 ```
 
 ## 2. Copy the artifacts into Guild Wars
@@ -52,11 +52,11 @@ new build.
 Steam expands `%command%` to Proton's normal `waitforexitandrun` invocation.
 The local `steamarbitrarycommand.sh` helper replaces the original Windows
 program after `waitforexitandrun` with the arguments after `--run`.
-Consequently, passing `tyria_injector.exe` directly after `--run` would replace
+Consequently, passing `reforged_injector.exe` directly after `--run` would replace
 `Gw.exe`; there would be no target process to inject.
 
 Use a batch file to start the client first and inject after its process exists.
-Create `tyria_sniffer_launcher.bat` in the Guild Wars installation directory,
+Create `reforged_sniffer_launcher.bat` in the Guild Wars installation directory,
 usually:
 
 ```text
@@ -73,7 +73,7 @@ start "" "Gw.exe"
 
 ping -n 15 127.0.0.1 > nul
 
-".\tyria_injector.exe" Gw.exe ".\tyria_sniffer.dll"
+".\reforged_injector.exe" Gw.exe ".\reforged_sniffer.dll"
 ```
 
 Both artifacts are resolved relative to
@@ -84,7 +84,7 @@ Increase it only if the injector reports `process not found: Gw.exe`.
 Set the Steam launch options to:
 
 ```text
-/home/USER/steamarbitrarycommand.sh game-performance %command% --run tyria_sniffer_launcher.bat
+/home/USER/steamarbitrarycommand.sh game-performance %command% --run reforged_sniffer_launcher.bat
 ```
 
 Replace `USER` in the Steam option with the Linux account name. The helper and
@@ -98,7 +98,7 @@ With the DLL copied beside `Gw.exe`, each injection writes a new session below:
 $HOME/.local/share/Steam/steamapps/common/Guild Wars/captures/<session_id>/
 ```
 
-`tyria_capture.jsonl` must report the installed hooks. For the current client,
+`reforged_capture.jsonl` must report the installed hooks. For the current client,
 a successful startup includes:
 
 ```text

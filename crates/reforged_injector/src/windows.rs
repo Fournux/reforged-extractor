@@ -21,10 +21,10 @@ pub(super) fn run() -> std::result::Result<(), String> {
     // STEAM_COMPAT_DATA_PATH="$HOME/.local/share/Steam/steamapps/compatdata/29720" \
     // STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam" \
     // "$HOME/.local/share/Steam/compatibilitytools.d/cachyos-11.0-20260602-slr/proton" run \
-    //   target/i686-pc-windows-msvc/release/tyria_injector.exe Gw.exe \
-    //   target/i686-pc-windows-msvc/release/tyria_sniffer.dll
+    //   target/i686-pc-windows-msvc/release/reforged_injector.exe Gw.exe \
+    //   target/i686-pc-windows-msvc/release/reforged_sniffer.dll
 
-    const USAGE: &str = "usage: tyria_injector.exe <pid|process-name> <dll-path>";
+    const USAGE: &str = "usage: reforged_injector.exe <pid|process-name> <dll-path>";
     let mut args = env::args_os().skip(1);
     let (Some(target), Some(dll_path), None) = (args.next(), args.next(), args.next()) else {
         return Err(USAGE.to_string());

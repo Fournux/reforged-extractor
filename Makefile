@@ -5,9 +5,8 @@ GW_DAT ?= $(HOME)/.local/share/Steam/steamapps/common/Guild Wars/Gw.dat
 LATEST_CAPTURE_DIR := $(patsubst %/,%,$(lastword $(sort $(wildcard captures/[0-9]*/))))
 CAPTURE_DIR ?= $(LATEST_CAPTURE_DIR)
 CAPTURE_PATH = $(if $(wildcard $(CAPTURE_DIR)),$(CAPTURE_DIR),captures/$(CAPTURE_DIR))
-EXTRACT = cargo run --release -p tyria-extractor-rs -- extract
-VENDOR_LOG_NAMES := tyria_npcs.jsonl tyria_vendor_context.jsonl tyria_collectors.jsonl tyria_merchants.jsonl tyria_crafters.jsonl tyria_skill_trainers.jsonl
-VENDOR_LOGS = $(foreach name,$(VENDOR_LOG_NAMES),$(wildcard $(CAPTURE_PATH)/$(name)))
+EXTRACT = cargo run --release -p reforged-extractor -- extract
+VENDOR_LOG_NAMES := reforged_npcs.jsonl reforged_vendor_context.jsonl reforged_collectors.jsonl reforged_merchants.jsonl reforged_crafters.jsonl reforged_skill_trainers.jsonl
 VENDOR_ARGS = $(foreach log,$(VENDOR_LOGS),--packet-log "$(log)")
 
 define require_capture_file
@@ -17,13 +16,13 @@ endef
 all: build
 
 build:
-	cargo build --release -p tyria-extractor-rs
+	cargo build --release -p reforged-extractor
 
 build-capture:
-	cargo build --release --target i686-pc-windows-msvc -p tyria_sniffer -p tyria_injector
+	cargo build --release --target i686-pc-windows-msvc -p reforged_sniffer -p reforged_injector
 
 inject:
-	target/i686-pc-windows-msvc/release/tyria_injector.exe Gw.exe target/i686-pc-windows-msvc/release/tyria_sniffer.dll
+	target/i686-pc-windows-msvc/release/reforged_injector.exe Gw.exe target/i686-pc-windows-msvc/release/reforged_sniffer.dll
 
 check-gw-dat:
 	@test -f "$(GW_DAT)" || { echo "Gw.dat not found: $(GW_DAT) (set GW_DAT to use another path)" >&2; exit 1; }
@@ -51,20 +50,20 @@ extract-images: check-gw-dat
 	$(EXTRACT) images --snapshot "$(GW_DAT)"
 
 extract-items: check-gw-dat check-capture-dir
-	$(call require_capture_file,tyria_items.jsonl)
-	$(EXTRACT) items --snapshot "$(GW_DAT)" --packet-log "$(CAPTURE_PATH)/tyria_items.jsonl"
+	$(call require_capture_file,reforged_items.jsonl)
+	$(EXTRACT) items --snapshot "$(GW_DAT)" --packet-log "$(CAPTURE_PATH)/reforged_items.jsonl"
 
 extract-quests: check-gw-dat check-capture-dir
-	$(call require_capture_file,tyria_npcs.jsonl)
-	$(call require_capture_file,tyria_quests.jsonl)
+	$(call require_capture_file,reforged_npcs.jsonl)
+	$(call require_capture_file,reforged_quests.jsonl)
 	$(EXTRACT) quests --snapshot "$(GW_DAT)" \
-		--packet-log "$(CAPTURE_PATH)/tyria_npcs.jsonl" \
-		--packet-log "$(CAPTURE_PATH)/tyria_quests.jsonl" $(if $(wildcard $(CAPTURE_PATH)/tyria_items.jsonl),--item-log "$(CAPTURE_PATH)/tyria_items.jsonl")
+		--packet-log "$(CAPTURE_PATH)/reforged_npcs.jsonl" \
+		--packet-log "$(CAPTURE_PATH)/reforged_quests.jsonl" $(if $(wildcard $(CAPTURE_PATH)/reforged_items.jsonl),--item-log "$(CAPTURE_PATH)/reforged_items.jsonl")
 
 extract-npcs: check-gw-dat check-capture-dir
-	$(call require_capture_file,tyria_npcs.jsonl)
+	$(call require_capture_file,reforged_npcs.jsonl)
 	$(EXTRACT) npcs --snapshot "$(GW_DAT)" \
-		--packet-log "$(CAPTURE_PATH)/tyria_npcs.jsonl" $(if $(wildcard $(CAPTURE_PATH)/tyria_collectors.jsonl),--packet-log "$(CAPTURE_PATH)/tyria_collectors.jsonl")
+		--packet-log "$(CAPTURE_PATH)/reforged_npcs.jsonl" $(if $(wildcard $(CAPTURE_PATH)/reforged_collectors.jsonl),--packet-log "$(CAPTURE_PATH)/reforged_collectors.jsonl")
 
 extract-vendors: check-gw-dat check-vendor-logs
 	$(EXTRACT) vendors --snapshot "$(GW_DAT)" $(VENDOR_ARGS)
@@ -85,7 +84,7 @@ fmt:
 	cargo fmt --all
 
 help:
-	@echo "TyriaExtractor Makefile targets:"
+	@echo "ReforgedExtractor Makefile targets:"
 	@echo "  build           Build extractor CLI (release)"
 	@echo "  build-capture   Build Win32 sniffer & injector"
 	@echo "  inject          Run injector on Gw.exe"

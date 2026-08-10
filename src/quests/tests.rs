@@ -197,7 +197,7 @@ fn maps_only_exact_unique_reward_item_references_to_models() {
     let reward_words = encoded_words_from_hex(REWARD).unwrap();
     const ITEM: &str = r#"{"model_id":2817,"model_file_id":9528,"name_text_id":9553,"enc_name_hex":"51262984a6d637320000"}"#;
     let path = std::env::temp_dir().join(format!(
-        "tyria_reward_item_models_{}.jsonl",
+        "reforged_reward_item_models_{}.jsonl",
         std::process::id()
     ));
     std::fs::write(&path, ITEM).unwrap();
@@ -441,7 +441,7 @@ fn links_quest_dialog_to_stable_npc_model() {
         packet(8, 0x52, &remove),
     ];
     let path = std::env::temp_dir().join(format!(
-        "tyria-extractor-quest-dialog-{}.jsonl",
+        "reforged-extractor-quest-dialog-{}.jsonl",
         std::process::id()
     ));
     std::fs::write(

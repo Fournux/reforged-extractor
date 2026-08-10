@@ -717,23 +717,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_contract_uses_tyria_names() {
-        assert_eq!(VERBOSE_JSONL_ENV, "TYRIA_VERBOSE_JSONL");
+    fn capture_contract_uses_reforged_names() {
+        assert_eq!(VERBOSE_JSONL_ENV, "REFORGED_VERBOSE_JSONL");
         assert_eq!(CAPTURE_FORMAT_VERSION, 5);
         assert_eq!(world_packet_name(0x20), "AGENT_SPAWNED");
         assert_eq!(world_packet_name(0x56), "NPC_UPDATE_PROPERTIES");
         assert_eq!(world_packet_name(0x7e), "DIALOG_BUTTON");
         assert_eq!(world_packet_name(0x81), "DIALOG_SENDER");
         assert_eq!(world_packet_name(0x9b), "AGENT_UPDATE_NPC_NAME");
-        assert_eq!(output_filename(), "tyria_items.jsonl");
-        assert_eq!(QUESTS_JSONL_FILENAME, "tyria_quests.jsonl");
-        assert_eq!(NPCS_JSONL_FILENAME, "tyria_npcs.jsonl");
-        assert_eq!(VENDOR_CONTEXT_JSONL_FILENAME, "tyria_vendor_context.jsonl");
-        assert_eq!(COLLECTORS_JSONL_FILENAME, "tyria_collectors.jsonl");
-        assert_eq!(MERCHANTS_JSONL_FILENAME, "tyria_merchants.jsonl");
-        assert_eq!(CRAFTERS_JSONL_FILENAME, "tyria_crafters.jsonl");
-        assert_eq!(SKILL_TRAINERS_JSONL_FILENAME, "tyria_skill_trainers.jsonl");
-        assert_eq!(CAPTURE_METADATA_JSONL_FILENAME, "tyria_capture.jsonl");
+        assert_eq!(output_filename(), "reforged_items.jsonl");
+        assert_eq!(QUESTS_JSONL_FILENAME, "reforged_quests.jsonl");
+        assert_eq!(NPCS_JSONL_FILENAME, "reforged_npcs.jsonl");
+        assert_eq!(VENDOR_CONTEXT_JSONL_FILENAME, "reforged_vendor_context.jsonl");
+        assert_eq!(COLLECTORS_JSONL_FILENAME, "reforged_collectors.jsonl");
+        assert_eq!(MERCHANTS_JSONL_FILENAME, "reforged_merchants.jsonl");
+        assert_eq!(CRAFTERS_JSONL_FILENAME, "reforged_crafters.jsonl");
+        assert_eq!(SKILL_TRAINERS_JSONL_FILENAME, "reforged_skill_trainers.jsonl");
+        assert_eq!(CAPTURE_METADATA_JSONL_FILENAME, "reforged_capture.jsonl");
     }
 
     #[test]

@@ -171,7 +171,7 @@ mod tests {
 
     fn test_root(name: &str) -> PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("tyria-output-{name}-{}-{id}", std::process::id()))
+        std::env::temp_dir().join(format!("reforged-output-{name}-{}-{id}", std::process::id()))
     }
 
     #[test]

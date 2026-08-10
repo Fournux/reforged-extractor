@@ -63,7 +63,7 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
         "--snapshot",
         "items.snapshot",
         "--packet-log",
-        "tyria_packets.jsonl",
+        "reforged_packets.jsonl",
         "--skip-icons",
     ])
     .expect("extract items subcommand should parse");
@@ -78,7 +78,7 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
                 },
         } => {
             assert_eq!(snapshot, PathBuf::from("items.snapshot"));
-            assert_eq!(packet_log, vec![PathBuf::from("tyria_packets.jsonl")]);
+            assert_eq!(packet_log, vec![PathBuf::from("reforged_packets.jsonl")]);
             assert!(skip_icons);
             assert!(!use_client_strings);
         }
@@ -92,7 +92,7 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
         "--snapshot",
         "items.snapshot",
         "--packet-log",
-        "tyria_packets.jsonl",
+        "reforged_packets.jsonl",
         "--use-client-strings",
     ])
     .expect("client string opt-in should parse");
@@ -114,9 +114,9 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
         "--snapshot",
         "Gw.dat",
         "--packet-log",
-        "tyria_quests.jsonl",
+        "reforged_quests.jsonl",
         "--item-log",
-        "tyria_items.jsonl",
+        "reforged_items.jsonl",
     ])
     .expect("extract quests subcommand should parse");
     match quests.command {
@@ -129,8 +129,8 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
                 },
         } => {
             assert_eq!(snapshot, PathBuf::from("Gw.dat"));
-            assert_eq!(packet_log, vec![PathBuf::from("tyria_quests.jsonl")]);
-            assert_eq!(item_log, vec![PathBuf::from("tyria_items.jsonl")]);
+            assert_eq!(packet_log, vec![PathBuf::from("reforged_quests.jsonl")]);
+            assert_eq!(item_log, vec![PathBuf::from("reforged_items.jsonl")]);
         }
         other => panic!("extract quests parsed as unexpected command: {other:?}"),
     }
@@ -143,7 +143,7 @@ fn cli_accepts_extract_subcommands_with_explicit_snapshot() {
             "--snapshot",
             "Gw.dat",
             "--packet-log",
-            "tyria_quests.jsonl",
+            "reforged_quests.jsonl",
             "--allow-unverified-capture",
         ])
         .is_err()

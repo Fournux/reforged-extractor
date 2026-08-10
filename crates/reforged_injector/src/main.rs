@@ -3,7 +3,7 @@ mod windows;
 
 #[cfg(not(all(windows, target_arch = "x86")))]
 fn main() {
-    eprintln!("tyria_injector must be built as 32-bit Windows, e.g. --target i686-pc-windows-msvc");
+    eprintln!("reforged_injector must be built as 32-bit Windows, e.g. --target i686-pc-windows-msvc");
     std::process::exit(1);
 }
 

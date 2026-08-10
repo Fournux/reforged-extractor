@@ -556,16 +556,16 @@ pub unsafe extern "system" fn DllMain(
     TRUE
 }
 
-const VERBOSE_JSONL_ENV: &str = "TYRIA_VERBOSE_JSONL";
-const ITEMS_JSONL_FILENAME: &str = "tyria_items.jsonl";
-const QUESTS_JSONL_FILENAME: &str = "tyria_quests.jsonl";
-const NPCS_JSONL_FILENAME: &str = "tyria_npcs.jsonl";
-const VENDOR_CONTEXT_JSONL_FILENAME: &str = "tyria_vendor_context.jsonl";
-const COLLECTORS_JSONL_FILENAME: &str = "tyria_collectors.jsonl";
-const MERCHANTS_JSONL_FILENAME: &str = "tyria_merchants.jsonl";
-const CRAFTERS_JSONL_FILENAME: &str = "tyria_crafters.jsonl";
-const SKILL_TRAINERS_JSONL_FILENAME: &str = "tyria_skill_trainers.jsonl";
-const CAPTURE_METADATA_JSONL_FILENAME: &str = "tyria_capture.jsonl";
+const VERBOSE_JSONL_ENV: &str = "REFORGED_VERBOSE_JSONL";
+const ITEMS_JSONL_FILENAME: &str = "reforged_items.jsonl";
+const QUESTS_JSONL_FILENAME: &str = "reforged_quests.jsonl";
+const NPCS_JSONL_FILENAME: &str = "reforged_npcs.jsonl";
+const VENDOR_CONTEXT_JSONL_FILENAME: &str = "reforged_vendor_context.jsonl";
+const COLLECTORS_JSONL_FILENAME: &str = "reforged_collectors.jsonl";
+const MERCHANTS_JSONL_FILENAME: &str = "reforged_merchants.jsonl";
+const CRAFTERS_JSONL_FILENAME: &str = "reforged_crafters.jsonl";
+const SKILL_TRAINERS_JSONL_FILENAME: &str = "reforged_skill_trainers.jsonl";
+const CAPTURE_METADATA_JSONL_FILENAME: &str = "reforged_capture.jsonl";
 
 static VERBOSE_JSONL: LazyLock<bool> =
     LazyLock::new(|| std::env::var_os(VERBOSE_JSONL_ENV).is_some());
@@ -955,7 +955,7 @@ mod tests {
     }
     #[test]
     fn session_capture_path_lives_outside_target() {
-        let module = Path::new(r"C:\repo\target\i686-pc-windows-msvc\release\tyria_sniffer.dll");
+        let module = Path::new(r"C:\repo\target\i686-pc-windows-msvc\release\reforged_sniffer.dll");
         let path = session_output_path(module, 42);
         assert_eq!(path.parent(), Some(Path::new(r"C:\repo\captures\42")));
         assert_eq!(path.file_name(), Some(OsStr::new(output_filename())));

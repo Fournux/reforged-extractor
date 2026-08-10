@@ -1,5 +1,5 @@
 [package]
-name = "tyria-extractor-rs"
+name = "reforged-extractor"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -7,8 +7,8 @@ license = "MIT"
 [workspace]
 members = [
     ".",
-    "crates/tyria_injector",
-    "crates/tyria_sniffer",
+    "crates/reforged_injector",
+    "crates/reforged_sniffer",
 ]
 resolver = "2"
 

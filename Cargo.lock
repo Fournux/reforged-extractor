@@ -284,6 +284,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "reforged-extractor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "image",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "reforged_injector"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "reforged_sniffer"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -347,33 +374,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tyria-extractor-rs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "hex",
- "image",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "tyria_injector"
-version = "0.1.0"
-dependencies = [
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "tyria_sniffer"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "windows-sys 0.59.0",
 ]
 
 [[package]]

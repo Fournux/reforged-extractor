@@ -1,6 +1,6 @@
-# TyriaExtractor / Guild Wars Database Extractor
+# ReforgedExtractor / Guild Wars Database Extractor
 
-TyriaExtractor reverse-engineers the official Guild Wars client data pipeline to build a structured, reproducible game database from local first-party files.
+ReforgedExtractor reverse-engineers the official Guild Wars client data pipeline to build a structured, reproducible game database from local first-party files.
 
 Technical findings about archive formats, decompression, resource indexing, and string resolution belong in [`GWDAT_INVESTIGATION_JOURNAL.md`](GWDAT_INVESTIGATION_JOURNAL.md) and [`doc/`](doc/README.md).
 
