@@ -1,4 +1,4 @@
-.PHONY: all build build-capture inject extract extract-all extract-skills extract-images extract-items extract-quests extract-npcs extract-vendors validate-items regen check test fmt help check-gw-dat check-capture-dir check-vendor-logs
+.PHONY: all build build-capture inject extract extract-all extract-skills extract-images extract-items extract-quests extract-npcs extract-vendors validate-items regen check test fmt setup-hooks help check-gw-dat check-capture-dir check-vendor-logs
 
 PYTHON ?= python3
 GW_DAT ?= $(HOME)/.local/share/Steam/steamapps/common/Guild Wars/Gw.dat
@@ -75,6 +75,7 @@ regen: extract-all
 	$(MAKE) validate-items
 
 check:
+	cargo fmt --all -- --check
 	cargo check --workspace
 
 test:
@@ -83,6 +84,9 @@ test:
 fmt:
 	cargo fmt --all
 
+setup-hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks configured to use .githooks/"
 help:
 	@echo "ReforgedExtractor Makefile targets:"
 	@echo "  build           Build extractor CLI (release)"
@@ -97,9 +101,10 @@ help:
 	@echo "  extract-vendors Extract vendors (requires capture)"
 	@echo "  validate-items  Validate items output catalog"
 	@echo "  regen           Run extract-all and validate-items"
-	@echo "  check           Run cargo check"
+	@echo "  check           Run cargo fmt check & cargo check"
 	@echo "  test            Run cargo test"
 	@echo "  fmt             Run cargo fmt"
+	@echo "  setup-hooks     Configure Git to use .githooks/ pre-commit hook"
 	@echo ""
 	@echo "Variables: GW_DAT=<path>, CAPTURE_DIR=<path-or-session-id>, PYTHON=<command>"
 	@echo "Use make -n <target> for a dry run."

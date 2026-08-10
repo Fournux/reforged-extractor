@@ -352,7 +352,11 @@ mod tests {
         )?;
         let error = merge_capture_inputs(std::slice::from_ref(&input), &root, "test")
             .expect_err("inline metadata must be rejected");
-        assert!(error.to_string().contains("belongs in reforged_capture.jsonl"));
+        assert!(
+            error
+                .to_string()
+                .contains("belongs in reforged_capture.jsonl")
+        );
         fs::remove_dir_all(root)?;
         Ok(())
     }

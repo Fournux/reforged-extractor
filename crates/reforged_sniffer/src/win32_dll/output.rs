@@ -728,11 +728,17 @@ mod tests {
         assert_eq!(output_filename(), "reforged_items.jsonl");
         assert_eq!(QUESTS_JSONL_FILENAME, "reforged_quests.jsonl");
         assert_eq!(NPCS_JSONL_FILENAME, "reforged_npcs.jsonl");
-        assert_eq!(VENDOR_CONTEXT_JSONL_FILENAME, "reforged_vendor_context.jsonl");
+        assert_eq!(
+            VENDOR_CONTEXT_JSONL_FILENAME,
+            "reforged_vendor_context.jsonl"
+        );
         assert_eq!(COLLECTORS_JSONL_FILENAME, "reforged_collectors.jsonl");
         assert_eq!(MERCHANTS_JSONL_FILENAME, "reforged_merchants.jsonl");
         assert_eq!(CRAFTERS_JSONL_FILENAME, "reforged_crafters.jsonl");
-        assert_eq!(SKILL_TRAINERS_JSONL_FILENAME, "reforged_skill_trainers.jsonl");
+        assert_eq!(
+            SKILL_TRAINERS_JSONL_FILENAME,
+            "reforged_skill_trainers.jsonl"
+        );
         assert_eq!(CAPTURE_METADATA_JSONL_FILENAME, "reforged_capture.jsonl");
     }
 

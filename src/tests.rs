@@ -25,8 +25,10 @@ pub(crate) struct TestDir {
 impl TestDir {
     pub(crate) fn new() -> anyhow::Result<Self> {
         let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path =
-            std::env::temp_dir().join(format!("reforged-extractor-test-{}-{id}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "reforged-extractor-test-{}-{id}",
+            std::process::id()
+        ));
         fs::create_dir(&path)?;
         Ok(Self { path })
     }

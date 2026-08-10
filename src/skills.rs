@@ -129,7 +129,8 @@ fn validate_skill_distribution(
 const ADRENALINE_UNITS_PER_STRIKE: u32 = 25;
 
 fn adrenaline_strikes(units: u32) -> u32 {
-    units / ADRENALINE_UNITS_PER_STRIKE + u32::from(units % ADRENALINE_UNITS_PER_STRIKE != 0)
+    units / ADRENALINE_UNITS_PER_STRIKE
+        + u32::from(!units.is_multiple_of(ADRENALINE_UNITS_PER_STRIKE))
 }
 
 fn decoded_energy_cost(encoded: u8) -> u32 {
