@@ -36,14 +36,12 @@ fn atex_header_parser_handles_reference_dxt_variants() -> anyhow::Result<()> {
     let header = crate::atex::parse_header(b"ATEXDXTA\x40\x00\x20\x00")?;
     assert_eq!(header.container, crate::atex::AtexContainer::Atex);
     assert_eq!(header.format.as_fourcc(), "DXTA");
-    assert_eq!(header.format.dds_fourcc(), "DXT5");
     assert_eq!(header.width, 64);
     assert_eq!(header.height, 32);
 
     let header = crate::atex::parse_header(b"ATTXDXTL\x00\x01\x00\x01")?;
     assert_eq!(header.container, crate::atex::AtexContainer::Attx);
     assert_eq!(header.format.as_fourcc(), "DXTL");
-    assert_eq!(header.format.dds_fourcc(), "DXT5");
     assert_eq!(header.width, 256);
     assert_eq!(header.height, 256);
 
@@ -63,6 +61,25 @@ fn compact_dxt3_atex_subcode3_decodes_uniform_alpha_and_color() -> anyhow::Resul
     for pixel in rgba.chunks_exact(4) {
         assert_eq!(pixel, &[255, 0, 0, 119]);
     }
+    Ok(())
+}
+
+#[test]
+fn uncompressed_dxta_keeps_eight_byte_block_stride() -> anyhow::Result<()> {
+    let mut dxta = Vec::new();
+    dxta.extend_from_slice(b"ATEXDXTA");
+    dxta.extend_from_slice(&8_u16.to_le_bytes());
+    dxta.extend_from_slice(&4_u16.to_le_bytes());
+    dxta.extend_from_slice(&24_u32.to_le_bytes());
+    dxta.extend_from_slice(&0_u32.to_le_bytes());
+    dxta.extend_from_slice(&[10, 10, 0, 0, 0, 0, 0, 0]);
+    dxta.extend_from_slice(&[20, 20, 0, 0, 0, 0, 0, 0]);
+
+    let (width, height, rgba) = crate::atex::decode_atex_rgba(&dxta)?;
+
+    assert_eq!((width, height), (8, 4));
+    assert_eq!(&rgba[0..4], &[10, 10, 10, 255]);
+    assert_eq!(&rgba[4 * 4..4 * 4 + 4], &[20, 20, 20, 255]);
     Ok(())
 }
 

@@ -1,13 +1,29 @@
+use std::mem::size_of;
+
 use anyhow::{Context, bail};
 
-use super::{AtexDxtFormat, AtexHeader, dxt_block_count};
+use super::{
+    ATEX_ENCODED_HEADER_LEN, ATEX_HEADER_LEN, AtexDxtFormat, AtexHeader, DXT_BLOCK_SIDE,
+    dxt_block_count,
+};
 
-const IMAGE_FORMATS: [u32; 23] = [
-    0x0B2, 0x12, 0x0B2, 0x72, 0x12, 0x12, 0x12, 0x100, 0x1A4, 0x1A4, 0x1A4, 0x104, 0x0A2, 0x78,
-    0x400, 0x71, 0x0B1, 0x0B1, 0x0B1, 0x0B1, 0x0A1, 0x11, 0x201,
-];
+const WORD_BYTES: usize = size_of::<u32>();
+const DATA_SIZE_WORD: usize = ATEX_HEADER_LEN / WORD_BYTES;
+const COMPRESSION_CODE_WORD: usize = DATA_SIZE_WORD + 1;
+const BITSTREAM_WORD: usize = ATEX_ENCODED_HEADER_LEN / WORD_BYTES;
+const MIN_DATA_RANGE_SIZE: usize = ATEX_ENCODED_HEADER_LEN - ATEX_HEADER_LEN;
 
-const HUFF_BITS: &[u8] = &[
+const SUBCODE_DXT1_CONSTANT_BLOCKS: u32 = 0x01;
+const SUBCODE_DXT3_ALPHA_BLOCKS: u32 = 0x02;
+const SUBCODE_DXT5_ALPHA_BLOCKS: u32 = 0x04;
+const SUBCODE_COLOR_BLOCKS: u32 = 0x08;
+const SUBCODE_SWIZZLED_BORDERS: u32 = 0x10;
+
+const SWIZZLED_TEXTURE_SIDE: u16 = 256;
+const SWIZZLED_BLOCKS_PER_ROW: usize = SWIZZLED_TEXTURE_SIDE as usize / DXT_BLOCK_SIDE;
+const SWIZZLED_BORDER_MASK: u32 = 0xc000_0003;
+
+const HUFFMAN_RUNS: [u8; 128] = [
     0x6, 0x10, 0x6, 0x0f, 0x6, 0x0e, 0x6, 0x0d, 0x6, 0x0c, 0x6, 0x0b, 0x6, 0x0a, 0x6, 0x9, 0x6,
     0x8, 0x6, 0x7, 0x6, 0x6, 0x6, 0x5, 0x6, 0x4, 0x6, 0x3, 0x6, 0x2, 0x6, 0x1, 0x2, 0x11, 0x2,
     0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11,
@@ -18,94 +34,77 @@ const HUFF_BITS: &[u8] = &[
     0x0,
 ];
 
-const HUFF_VALUE: &[u8] = &[
-    0x10, 0x6, 0x0f, 0x6, 0x0e, 0x6, 0x0d, 0x6, 0x0c, 0x6, 0x0b, 0x6, 0x0a, 0x6, 0x9, 0x6, 0x8,
-    0x6, 0x7, 0x6, 0x6, 0x6, 0x5, 0x6, 0x4, 0x6, 0x3, 0x6, 0x2, 0x6, 0x1, 0x2, 0x11, 0x2, 0x11,
-    0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2,
-    0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x2, 0x11, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1,
-    0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0,
-    0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1,
-    0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0,
-];
-
-pub(super) fn decompress_atex_to_dxt5(
+pub(super) fn decompress_atex_blocks(
     atex_bytes: &[u8],
     header: AtexHeader,
 ) -> anyhow::Result<Vec<u8>> {
-    if atex_bytes.len() < 20 {
+    if atex_bytes.len() < ATEX_ENCODED_HEADER_LEN {
         bail!("ATEX payload too small");
     }
 
-    let words = atex_bytes
-        .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect::<Vec<_>>();
-    let data_size = words[3] as usize;
-    let compression_code = words[4];
+    let word_count = atex_bytes.len() / WORD_BYTES;
+    let data_size = usize::try_from(
+        read_word(atex_bytes, DATA_SIZE_WORD).context("ATEX missing data-range size")?,
+    )
+    .context("ATEX data-range size does not fit usize")?;
+    let compression_code =
+        read_word(atex_bytes, COMPRESSION_CODE_WORD).context("ATEX missing compression code")?;
     let block_count = dxt_block_count(header.width as usize, header.height as usize, "ATEX")?;
-    let block_bytes = if matches!(header.format, AtexDxtFormat::Dxt1 | AtexDxtFormat::DxtA) {
-        8
-    } else {
-        16
-    };
+    let (alpha_words, color_words) = header.format.block_layout();
+    let block_words = alpha_words + color_words;
+    if !matches!(block_words, 2 | 4) {
+        bail!("unsupported ATEX block layout size {block_words}");
+    }
     let dxt_len = block_count
-        .checked_mul(block_bytes)
+        .checked_mul(block_words)
+        .and_then(|words| words.checked_mul(WORD_BYTES))
         .context("ATEX DXT byte count overflow")?;
 
-    let image_format = header.format.image_format()? as usize;
-    let format_flags = *IMAGE_FORMATS
-        .get(image_format)
-        .context("unsupported ATEX image format index")?;
-    let alpha_data_size2 = usize::from(image_format == 0x14) * 2;
-    let alpha_data_size = usize::from((format_flags & 640) != 0) * 2;
-    let color_data_size = usize::from((format_flags & 528) != 0) * 2;
-    let block_size = alpha_data_size2 + alpha_data_size + color_data_size;
-    if block_size != 2 && block_size != 4 {
-        bail!("unsupported ATEX block layout size {block_size}");
-    }
-    let swizzled_borders = compression_code & 0x10 != 0
-        && header.width == 256
-        && header.height == 256
-        && matches!(image_format, 0x10 | 0x11);
+    let swizzled_borders = compression_code & SUBCODE_SWIZZLED_BORDERS != 0
+        && header.width == SWIZZLED_TEXTURE_SIDE
+        && header.height == SWIZZLED_TEXTURE_SIDE
+        && matches!(
+            header.format,
+            AtexDxtFormat::Dxt2 | AtexDxtFormat::Dxt3 | AtexDxtFormat::DxtN
+        );
 
-    let end_word = (12 + data_size) / 4;
-    if end_word > words.len() || data_size <= 8 {
+    let end_byte = ATEX_HEADER_LEN
+        .checked_add(data_size)
+        .context("ATEX compressed data range overflow")?;
+    let end_word = end_byte / WORD_BYTES;
+    if end_word > word_count || data_size <= MIN_DATA_RANGE_SIZE {
         bail!("invalid ATEX compressed data range");
     }
 
-    let mut bits = BitReader::new(&words, 5, end_word);
-    let mut out = vec![
-        0_u32;
-        block_count
-            .checked_mul(block_size)
-            .context("ATEX block output overflow")?
-    ];
-    let bitmap_len = block_count.div_ceil(32);
+    let mut bits = BitReader::new(atex_bytes, BITSTREAM_WORD, end_word)?;
+    let mut out = vec![0_u8; dxt_len];
+    let bitmap_len = block_count.div_ceil(u32::BITS as usize);
     let mut dcmp1 = vec![0_u32; bitmap_len];
     let mut dcmp2 = vec![0_u32; bitmap_len];
     if swizzled_borders {
         subcode1(&mut dcmp1, &mut dcmp2, block_count);
     }
 
-    if compression_code & 1 != 0 && header.format == AtexDxtFormat::Dxt1 {
+    if compression_code & SUBCODE_DXT1_CONSTANT_BLOCKS != 0 && header.format == AtexDxtFormat::Dxt1
+    {
         subcode2(
             &mut out,
             &mut dcmp1,
             &mut dcmp2,
             &mut bits,
             block_count,
-            block_size,
+            block_words,
         )?;
     }
-    if compression_code & 2 != 0
+    if compression_code & SUBCODE_DXT3_ALPHA_BLOCKS != 0
         && matches!(
             header.format,
             AtexDxtFormat::Dxt2 | AtexDxtFormat::Dxt3 | AtexDxtFormat::DxtN
         )
     {
-        subcode3(&mut out, &mut dcmp1, &mut bits, block_count, block_size)?;
+        subcode3(&mut out, &mut dcmp1, &mut bits, block_count, block_words)?;
     }
-    if compression_code & 4 != 0
+    if compression_code & SUBCODE_DXT5_ALPHA_BLOCKS != 0
         && matches!(
             header.format,
             AtexDxtFormat::Dxt4 | AtexDxtFormat::Dxt5 | AtexDxtFormat::DxtA | AtexDxtFormat::DxtL
@@ -117,159 +116,185 @@ pub(super) fn decompress_atex_to_dxt5(
             &dcmp2,
             &mut bits,
             block_count,
-            block_size,
+            block_words,
         )?;
     }
-    if compression_code & 8 != 0 {
+    if compression_code & SUBCODE_COLOR_BLOCKS != 0 {
+        if color_words == 0 {
+            bail!("ATEX color subcode used by a format without color blocks");
+        }
         subcode5(
             &mut out,
             &mut dcmp2,
             &mut bits,
             block_count,
-            block_size,
+            block_words,
             header.format == AtexDxtFormat::Dxt1,
         )?;
     }
 
-    let mut pos = bits.pos.saturating_sub(1);
-    if alpha_data_size > 0 || alpha_data_size2 > 0 {
+    let mut pos = bits.tail_word();
+    if alpha_words > 0 {
         let raw_alpha_words = (0..block_count)
             .filter(|block| dcmp1[*block >> 5] & (1 << (*block & 31)) == 0)
             .count()
             * 2;
+        let tail_cannot_hold_alpha = pos > end_word || raw_alpha_words > end_word - pos;
         let dxt3_opaque_alpha_fallback = matches!(
             header.format,
             AtexDxtFormat::Dxt2 | AtexDxtFormat::Dxt3 | AtexDxtFormat::DxtN
-        ) && pos + raw_alpha_words > end_word;
+        ) && tail_cannot_hold_alpha;
         for block in 0..block_count {
             if dcmp1[block >> 5] & (1 << (block & 31)) == 0 {
-                let dst = block * block_size;
+                let dst = block * block_words;
                 if dxt3_opaque_alpha_fallback {
-                    out[dst] = u32::MAX;
-                    out[dst + 1] = u32::MAX;
+                    write_word(&mut out, dst, u32::MAX);
+                    write_word(&mut out, dst + 1, u32::MAX);
                 } else {
-                    out[dst] = *words.get(pos).context("ATEX alpha block underrun")?;
-                    out[dst + 1] = *words.get(pos + 1).context("ATEX alpha block underrun")?;
+                    let alpha0 = read_word(atex_bytes, pos).context("ATEX alpha block underrun")?;
+                    let alpha1 =
+                        read_word(atex_bytes, pos + 1).context("ATEX alpha block underrun")?;
+                    write_word(&mut out, dst, alpha0);
+                    write_word(&mut out, dst + 1, alpha1);
                     pos += 2;
                 }
             }
         }
     }
-    if color_data_size > 0 {
+    if color_words > 0 {
         for block in 0..block_count {
             if dcmp2[block >> 5] & (1 << (block & 31)) == 0 {
-                let dst = block * block_size + alpha_data_size2 + alpha_data_size;
-                out[dst] = *words.get(pos).context("ATEX color block underrun")?;
+                let dst = block * block_words + alpha_words;
+                let color = read_word(atex_bytes, pos).context("ATEX color block underrun")?;
+                write_word(&mut out, dst, color);
                 pos += 1;
             }
         }
         for block in 0..block_count {
             if dcmp2[block >> 5] & (1 << (block & 31)) == 0 {
-                let dst = block * block_size + alpha_data_size2 + alpha_data_size + 1;
-                out[dst] = *words.get(pos).context("ATEX color index block underrun")?;
+                let dst = block * block_words + alpha_words + 1;
+                let indices =
+                    read_word(atex_bytes, pos).context("ATEX color index block underrun")?;
+                write_word(&mut out, dst, indices);
                 pos += 1;
             }
         }
     }
 
     if swizzled_borders {
-        subcode7(&mut out, block_count, block_size)?;
+        subcode7(&mut out, block_count, block_words)?;
     }
 
-    let mut bytes = Vec::with_capacity(dxt_len);
-    for word in out {
-        bytes.extend_from_slice(&word.to_le_bytes());
-    }
-    Ok(bytes)
+    Ok(out)
 }
 
+fn read_word(bytes: &[u8], index: usize) -> Option<u32> {
+    let offset = index.checked_mul(WORD_BYTES)?;
+    let end = offset.checked_add(WORD_BYTES)?;
+    Some(u32::from_le_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn write_word(bytes: &mut [u8], index: usize, value: u32) {
+    let offset = index * WORD_BYTES;
+    bytes[offset..offset + WORD_BYTES].copy_from_slice(&value.to_le_bytes());
+}
+
+#[derive(Clone, Copy)]
 struct BitReader<'a> {
-    words: &'a [u32],
-    pos: usize,
-    end: usize,
-    remaining: u32,
-    current: u32,
-    next: u32,
+    bytes: &'a [u8],
+    word: usize,
+    bit_offset: u32,
+    end_word: usize,
 }
 
 impl<'a> BitReader<'a> {
-    fn new(words: &'a [u32], pos: usize, end: usize) -> Self {
-        let mut reader = Self {
-            words,
-            pos,
-            end,
-            remaining: 0,
-            current: 0,
-            next: 0,
-        };
-        if reader.pos != reader.end {
-            reader.current = reader.words[reader.pos];
-            reader.pos += 1;
+    fn new(bytes: &'a [u8], word: usize, end_word: usize) -> anyhow::Result<Self> {
+        if word > end_word || end_word > bytes.len() / WORD_BYTES {
+            bail!("invalid ATEX bitstream range");
         }
-        reader
+        Ok(Self {
+            bytes,
+            word,
+            bit_offset: 0,
+            end_word,
+        })
     }
 
-    fn consume(&mut self, bits: u32) {
-        if bits == 0 {
-            return;
+    fn tail_word(self) -> usize {
+        self.word + usize::from(self.bit_offset != 0)
+    }
+
+    fn available_bits(self) -> usize {
+        self.end_word
+            .saturating_sub(self.word)
+            .saturating_mul(u32::BITS as usize)
+            .saturating_sub(self.bit_offset as usize)
+    }
+
+    fn bit(&mut self) -> anyhow::Result<u32> {
+        self.take_bits(1)
+    }
+
+    fn take_bits(&mut self, bits: u32) -> anyhow::Result<u32> {
+        if bits > u32::BITS {
+            bail!("ATEX bit read exceeds 32 bits");
         }
-        self.current = (self.current << bits) | (self.next >> (32 - bits));
-        if bits > self.remaining {
-            if self.pos != self.end {
-                let word = self.words[self.pos];
-                self.pos += 1;
-                self.current |= word >> (self.remaining + 32 - bits);
-                self.next = word << (bits - self.remaining);
-                self.remaining += 32 - bits;
+        if self.available_bits() < bits as usize {
+            bail!("ATEX compressed bitstream underrun");
+        }
+        Ok(self.take_available_bits(bits))
+    }
+
+    fn peek_bits_padded(self, bits: u32) -> u32 {
+        debug_assert!(bits <= u32::BITS);
+        let available = bits.min(self.available_bits() as u32);
+        let mut reader = self;
+        let value = reader.take_available_bits(available);
+        value.checked_shl(bits - available).unwrap_or(0)
+    }
+
+    fn take_huffman_run(&mut self) -> anyhow::Result<usize> {
+        let offset = self.peek_bits_padded(6) as usize * 2;
+        let bit_count = u32::from(HUFFMAN_RUNS[offset]);
+        let run_length = usize::from(HUFFMAN_RUNS[offset + 1]) + 1;
+        self.take_bits(bit_count)?;
+        Ok(run_length)
+    }
+
+    fn take_available_bits(&mut self, bits: u32) -> u32 {
+        let mut value = 0_u32;
+        let mut remaining = bits;
+        while remaining > 0 {
+            let word = read_word(self.bytes, self.word).expect("validated ATEX bitstream word");
+            let available = u32::BITS - self.bit_offset;
+            let take = remaining.min(available);
+            let shift = available - take;
+            let piece = if take == u32::BITS {
+                word
             } else {
-                self.next = 0;
-                self.remaining = 0;
+                (word >> shift) & ((1_u32 << take) - 1)
+            };
+            value = if take == u32::BITS {
+                piece
+            } else {
+                (value << take) | piece
+            };
+            self.bit_offset += take;
+            if self.bit_offset == u32::BITS {
+                self.word += 1;
+                self.bit_offset = 0;
             }
-        } else {
-            self.remaining -= bits;
-            self.next <<= bits;
+            remaining -= take;
         }
-    }
-
-    fn bit(&mut self) -> u32 {
-        let bit = self.current >> 31;
-        self.current = (self.current << 1) | (self.next >> 31);
-        if self.remaining > 0 {
-            self.next <<= 1;
-            self.remaining -= 1;
-        } else if self.pos != self.end {
-            let word = self.words[self.pos];
-            self.pos += 1;
-            self.current |= word >> 31;
-            self.next = word << 1;
-            self.remaining = 31;
-        } else {
-            self.next = 0;
-            self.remaining = 0;
-        }
-        bit
-    }
-
-    fn take_bits(&mut self, bits: u32) -> u32 {
-        if bits == 0 {
-            return 0;
-        }
-        let value = if bits == 32 {
-            self.current
-        } else {
-            self.current >> (32 - bits)
-        };
-        self.consume(bits);
         value
     }
 }
 
 fn subcode1(dcmp1: &mut [u32], dcmp2: &mut [u32], block_count: usize) {
-    const BORDER_MASK: u32 = 0xc000_0003;
     for block in 0..block_count {
         let mask = 1_u32 << (block & 31);
-        let row_mask = 1_u32 << ((block >> 6) & 31);
-        if mask & BORDER_MASK != 0 || row_mask & BORDER_MASK != 0 {
+        let row_mask = 1_u32 << ((block / SWIZZLED_BLOCKS_PER_ROW) & (u32::BITS as usize - 1));
+        if mask & SWIZZLED_BORDER_MASK != 0 || row_mask & SWIZZLED_BORDER_MASK != 0 {
             dcmp1[block >> 5] |= mask;
             dcmp2[block >> 5] |= mask;
         }
@@ -277,30 +302,26 @@ fn subcode1(dcmp1: &mut [u32], dcmp2: &mut [u32], block_count: usize) {
 }
 
 fn subcode2(
-    out: &mut [u32],
+    out: &mut [u8],
     dcmp1: &mut [u32],
     dcmp2: &mut [u32],
     bits: &mut BitReader<'_>,
     block_count: usize,
-    block_size: usize,
+    block_words: usize,
 ) -> anyhow::Result<()> {
     let mut block = 0;
     while block < block_count {
-        let huff = (bits.current >> 26) as usize;
-        let read_count = HUFF_VALUE[huff * 2] as usize + 1;
-        let shift = HUFF_BITS[huff * 2] as u32;
-        bits.consume(shift);
-
-        let fill_block = bits.bit() != 0;
+        let read_count = bits.take_huffman_run()?;
+        let fill_block = bits.bit()? != 0;
         let mut remaining = read_count;
         while remaining > 0 && block < block_count {
             let mask = 1_u32 << (block & 31);
             let word = block >> 5;
             if dcmp2[word] & mask == 0 {
                 if fill_block {
-                    let dst = block * block_size;
-                    out[dst] = 0xffff_fffe;
-                    out[dst + 1] = 0xffff_ffff;
+                    let dst = block * block_words;
+                    write_word(out, dst, 0xffff_fffe);
+                    write_word(out, dst + 1, 0xffff_ffff);
                     dcmp1[word] |= mask;
                     dcmp2[word] |= mask;
                 }
@@ -320,35 +341,31 @@ fn subcode2(
 }
 
 fn subcode3(
-    out: &mut [u32],
+    out: &mut [u8],
     dcmp1: &mut [u32],
     bits: &mut BitReader<'_>,
     block_count: usize,
-    block_size: usize,
+    block_words: usize,
 ) -> anyhow::Result<()> {
-    let alpha_nibble = bits.take_bits(4);
+    let alpha_nibble = bits.take_bits(4)?;
     let alpha_byte = (alpha_nibble << 4) | alpha_nibble;
     let alpha_pattern = alpha_byte | (alpha_byte << 8) | (alpha_byte << 16) | (alpha_byte << 24);
     let alpha_table = [0, 0, 0, 0, alpha_pattern, alpha_pattern, 0, 0];
 
     let mut block = 0;
     while block < block_count {
-        let huff = (bits.current >> 26) as usize;
-        let read_count = HUFF_VALUE[huff * 2] as usize + 1;
-        let shift = HUFF_BITS[huff * 2] as u32;
-        bits.consume(shift);
-
-        let flag1 = bits.bit();
-        let alpha_index = if flag1 == 0 { 0 } else { flag1 + bits.bit() } as usize;
+        let read_count = bits.take_huffman_run()?;
+        let flag1 = bits.bit()?;
+        let alpha_index = if flag1 == 0 { 0 } else { flag1 + bits.bit()? } as usize;
         let mut remaining = read_count;
         while remaining > 0 && block < block_count {
             let mask = 1_u32 << (block & 31);
             let word = block >> 5;
             if dcmp1[word] & mask == 0 {
                 if alpha_index != 0 {
-                    let dst = block * block_size;
-                    out[dst] = alpha_table[alpha_index * 2];
-                    out[dst + 1] = alpha_table[alpha_index * 2 + 1];
+                    let dst = block * block_words;
+                    write_word(out, dst, alpha_table[alpha_index * 2]);
+                    write_word(out, dst + 1, alpha_table[alpha_index * 2 + 1]);
                     dcmp1[word] |= mask;
                 }
                 remaining -= 1;
@@ -367,51 +384,30 @@ fn subcode3(
 }
 
 fn subcode4(
-    out: &mut [u32],
+    out: &mut [u8],
     dcmp1: &mut [u32],
     dcmp2: &[u32],
     bits: &mut BitReader<'_>,
     block_count: usize,
-    block_size: usize,
+    block_words: usize,
 ) -> anyhow::Result<()> {
-    let extracted = (bits.current >> 24) & 0xff;
-    bits.current = (bits.current << 8) | (bits.next >> 24);
-    if bits.remaining < 8 {
-        if bits.pos != bits.end {
-            let word = bits.words[bits.pos];
-            bits.pos += 1;
-            bits.current |= word >> (bits.remaining + 24);
-            bits.next = word << (8 - bits.remaining);
-            bits.remaining += 24;
-        } else {
-            bits.next = 0;
-            bits.remaining = 0;
-        }
-    } else {
-        bits.next <<= 8;
-        bits.remaining -= 8;
-    }
-
+    let extracted = bits.take_bits(8)?;
     let color_pattern = (extracted << 8) | extracted;
     let color_table = [0, 0, 0, 0, color_pattern, 0, 0, 0];
     let mut block = 0;
     while block < block_count {
-        let shift_index = (bits.current >> 26) as usize;
-        let read_count = HUFF_VALUE[shift_index * 2] as usize + 1;
-        let shift = HUFF_BITS[shift_index * 2] as u32;
-        bits.consume(shift);
-
-        let flag1 = bits.bit();
-        let color_index = if flag1 == 0 { 0 } else { flag1 + bits.bit() } as usize;
+        let read_count = bits.take_huffman_run()?;
+        let flag1 = bits.bit()?;
+        let color_index = if flag1 == 0 { 0 } else { flag1 + bits.bit()? } as usize;
         let mut remaining = read_count;
         while remaining > 0 && block < block_count {
             let mask = 1_u32 << (block & 31);
             let word = block >> 5;
             if dcmp2[word] & mask == 0 {
                 if color_index != 0 {
-                    let dst = block * block_size;
-                    out[dst] = color_table[color_index * 2];
-                    out[dst + 1] = color_table[color_index * 2 + 1];
+                    let dst = block * block_words;
+                    write_word(out, dst, color_table[color_index * 2]);
+                    write_word(out, dst + 1, color_table[color_index * 2 + 1]);
                     dcmp1[word] |= mask;
                 }
                 remaining -= 1;
@@ -430,51 +426,29 @@ fn subcode4(
 }
 
 fn subcode5(
-    out: &mut [u32],
+    out: &mut [u8],
     dcmp2: &mut [u32],
     bits: &mut BitReader<'_>,
     block_count: usize,
-    block_size: usize,
+    block_words: usize,
     dxt1_flag: bool,
 ) -> anyhow::Result<()> {
-    let color_value = (bits.current >> 8) | 0xff00_0000;
-    let mut new_current = (bits.current << 24) | (bits.next >> 8);
-    if bits.remaining >= 24 {
-        bits.next <<= 24;
-        bits.remaining -= 24;
-    } else if bits.pos != bits.end {
-        let word = bits.words[bits.pos];
-        bits.pos += 1;
-        let shift = bits.remaining + 8;
-        new_current |= word >> shift;
-        bits.next = word << (24 - bits.remaining);
-        bits.remaining = shift;
-    } else {
-        bits.next = 0;
-        bits.remaining = 0;
-    }
-    bits.current = new_current;
-
+    let color_value = bits.take_bits(24)? | 0xff00_0000;
     let color_data = subcode6(color_value, dxt1_flag);
     let mut block = 0;
     while block < block_count {
-        let huff = ((bits.current >> 26) & 0x3f) as usize;
-        let huff_bits = HUFF_BITS[huff * 2] as u32;
-        let huff_value = HUFF_VALUE[huff * 2] as usize + 1;
-        if huff_bits < 32 {
-            bits.consume(huff_bits);
-        }
-        let bit = bits.bit();
-        let mut remaining = huff_value;
+        let read_count = bits.take_huffman_run()?;
+        let bit = bits.bit()?;
+        let mut remaining = read_count;
         while remaining > 0 && block < block_count {
             let mask = 1_u32 << (block & 31);
             let word = block >> 5;
             if dcmp2[word] & mask == 0 {
                 if bit != 0 {
                     let color_offset = if dxt1_flag { 0 } else { 2 };
-                    let dst = block * block_size + color_offset;
-                    out[dst] = color_data[0];
-                    out[dst + 1] = color_data[1];
+                    let dst = block * block_words + color_offset;
+                    write_word(out, dst, color_data[0]);
+                    write_word(out, dst + 1, color_data[1]);
                     dcmp2[word] |= mask;
                 }
                 remaining -= 1;
@@ -580,16 +554,15 @@ fn subcode6(color_value: u32, dxt1_flag: bool) -> [u32; 2] {
     [(color2 << 16) | color1, pattern]
 }
 
-fn subcode7(out: &mut [u32], block_count: usize, block_size: usize) -> anyhow::Result<()> {
-    if block_size != 4 {
+fn subcode7(out: &mut [u8], block_count: usize, block_words: usize) -> anyhow::Result<()> {
+    if block_words != 4 {
         bail!("ATEX border unswizzle requires four words per block");
     }
-    const BORDER_MASK: u32 = 0xc000_0003;
     for block in 0..block_count {
-        let position_in_row = block & 0x3f;
-        let row = block >> 6;
-        let low_swizzle = (1_u32 << (position_in_row & 31)) & BORDER_MASK != 0;
-        let high_swizzle = (1_u32 << (row & 31)) & BORDER_MASK != 0;
+        let position_in_row = block % SWIZZLED_BLOCKS_PER_ROW;
+        let row = block / SWIZZLED_BLOCKS_PER_ROW;
+        let low_swizzle = (1_u32 << (position_in_row & 31)) & SWIZZLED_BORDER_MASK != 0;
+        let high_swizzle = (1_u32 << (row & 31)) & SWIZZLED_BORDER_MASK != 0;
         if !low_swizzle && !high_swizzle {
             continue;
         }
@@ -600,16 +573,19 @@ fn subcode7(out: &mut [u32], block_count: usize, block_size: usize) -> anyhow::R
             position_in_row
         };
         let source_row = if high_swizzle { row ^ 3 } else { row };
-        let source = (source_row << 6) + source_in_row;
+        let source = source_row * SWIZZLED_BLOCKS_PER_ROW + source_in_row;
         if source >= block_count {
             continue;
         }
-        let source_offset = source * block_size;
-        let source_words = out
-            .get(source_offset..source_offset + 4)
-            .context("ATEX border source block out of bounds")?;
-        let [mut data0, mut data1, data2, mut data3] =
-            <[u32; 4]>::try_from(source_words).expect("four-word slice");
+        let source_offset = source * block_words;
+        let mut data0 =
+            read_word(out, source_offset).context("ATEX border source block out of bounds")?;
+        let mut data1 =
+            read_word(out, source_offset + 1).context("ATEX border source block out of bounds")?;
+        let data2 =
+            read_word(out, source_offset + 2).context("ATEX border source block out of bounds")?;
+        let mut data3 =
+            read_word(out, source_offset + 3).context("ATEX border source block out of bounds")?;
 
         if low_swizzle {
             for _ in 0..2 {
@@ -630,8 +606,10 @@ fn subcode7(out: &mut [u32], block_count: usize, block_size: usize) -> anyhow::R
             data3 = (low >> 8) | (high << 8);
         }
 
-        let destination = block * block_size;
-        out[destination..destination + 4].copy_from_slice(&[data0, data1, data2, data3]);
+        let destination = block * block_words;
+        for (offset, word) in [data0, data1, data2, data3].into_iter().enumerate() {
+            write_word(out, destination + offset, word);
+        }
     }
     Ok(())
 }
@@ -642,24 +620,31 @@ mod tests {
 
     #[test]
     fn subcode2_marks_dxt1_constant_blocks() {
-        let words = [0xffff_ffff_u32];
-        let mut bits = BitReader {
-            words: &words,
-            pos: 1,
-            end: 1,
-            remaining: 0,
-            current: words[0],
-            next: 0,
-        };
-        let mut out = vec![0_u32; 2];
+        let bytes = u32::MAX.to_le_bytes();
+        let mut bits = BitReader::new(&bytes, 0, 1).unwrap();
+        let mut out = vec![0_u8; 2 * WORD_BYTES];
         let mut dcmp1 = vec![0_u32; 1];
         let mut dcmp2 = vec![0_u32; 1];
 
         subcode2(&mut out, &mut dcmp1, &mut dcmp2, &mut bits, 1, 2).unwrap();
 
-        assert_eq!(out, [0xffff_fffe, 0xffff_ffff]);
+        assert_eq!(read_word(&out, 0), Some(0xffff_fffe));
+        assert_eq!(read_word(&out, 1), Some(0xffff_ffff));
         assert_eq!(dcmp1[0], 1);
         assert_eq!(dcmp2[0], 1);
+    }
+
+    #[test]
+    fn bit_reader_rejects_an_actual_underrun() {
+        let bytes = u32::MAX.to_le_bytes();
+        let mut bits = BitReader::new(&bytes, 0, 1).unwrap();
+
+        assert_eq!(bits.take_bits(32).unwrap(), u32::MAX);
+        let err = bits
+            .bit()
+            .expect_err("reading beyond the bitstream must fail");
+
+        assert!(err.to_string().contains("bitstream underrun"));
     }
 
     #[test]
@@ -671,12 +656,15 @@ mod tests {
         assert_eq!(dcmp1[130 >> 5] & (1 << (130 & 31)), 0);
         assert_ne!(dcmp2[158 >> 5] & (1 << (158 & 31)), 0);
 
-        let mut out = (0..256_u32)
-            .flat_map(|block| [block, block + 1_000, block + 2_000, block + 3_000])
-            .collect::<Vec<_>>();
+        let mut out = Vec::with_capacity(256 * 4 * WORD_BYTES);
+        for block in 0..256_u32 {
+            for word in [block, block + 1_000, block + 2_000, block + 3_000] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+        }
         subcode7(&mut out, 256, 4).unwrap();
 
-        assert_eq!(out[128 * 4 + 2], 131 + 2_000);
-        assert_eq!(out[130 * 4 + 2], 130 + 2_000);
+        assert_eq!(read_word(&out, 128 * 4 + 2), Some(131 + 2_000));
+        assert_eq!(read_word(&out, 130 * 4 + 2), Some(130 + 2_000));
     }
 }

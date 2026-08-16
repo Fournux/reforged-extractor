@@ -1,14 +1,22 @@
 mod decompress;
 mod dxt;
 
-use decompress::decompress_atex_to_dxt5;
+use decompress::decompress_atex_blocks;
 use dxt::{decode_dxt1_rgba, decode_dxt3_rgba, decode_dxt5_rgba, decode_dxta_rgba};
 
 use crate::io_util::read_u32;
 use anyhow::{Context, bail};
-use image::{ColorType, ImageBuffer, ImageFormat, Rgba, save_buffer_with_format};
+use image::{ColorType, ImageFormat, save_buffer_with_format};
 use std::path::Path;
 
+const ATEX_HEADER_LEN: usize = 12;
+pub(crate) const ATEX_ENCODED_HEADER_LEN: usize = 20;
+const DDS_HEADER_LEN: usize = 128;
+const DDS_HEADER_SIZE: u32 = 124;
+const DDPF_RGB: u32 = 0x40;
+const DDPF_BUMPDUDV: u32 = 0x0008_0000;
+const DXT_BLOCK_SIDE: usize = 4;
+const RGBA_BYTES_PER_PIXEL: usize = 4;
 const MAX_TEXTURE_PIXELS: usize = 8192 * 8192;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,22 +68,11 @@ impl AtexDxtFormat {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn dds_fourcc(self) -> &'static str {
+    fn block_layout(self) -> (usize, usize) {
         match self {
-            Self::Dxt1 => "DXT1",
-            Self::Dxt2 | Self::Dxt3 | Self::DxtN => "DXT3",
-            Self::Dxt4 | Self::Dxt5 | Self::DxtA | Self::DxtL => "DXT5",
-        }
-    }
-
-    fn image_format(self) -> anyhow::Result<u32> {
-        match self {
-            Self::Dxt1 => Ok(0x0f),
-            Self::Dxt2 | Self::Dxt3 | Self::DxtN => Ok(0x11),
-            Self::Dxt4 | Self::Dxt5 => Ok(0x13),
-            Self::DxtA => Ok(0x14),
-            Self::DxtL => Ok(0x12),
+            Self::Dxt1 => (0, 2),
+            Self::DxtA => (2, 0),
+            _ => (2, 2),
         }
     }
 }
@@ -90,7 +87,7 @@ pub(crate) struct AtexHeader {
 
 pub(crate) fn parse_header(bytes: &[u8]) -> anyhow::Result<AtexHeader> {
     let header = bytes
-        .get(..12)
+        .get(..ATEX_HEADER_LEN)
         .context("ATEX header shorter than 12 bytes")?;
 
     let container = match &header[0..4] {
@@ -171,7 +168,7 @@ pub(crate) fn decode_dds_rgba(dds_bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec
         bail!("not a DDS texture");
     }
     let header_size = read_u32(dds_bytes, 4).context("DDS missing header size")?;
-    if header_size != 124 {
+    if header_size != DDS_HEADER_SIZE {
         bail!("unsupported DDS header size {header_size}");
     }
     let height = read_u32(dds_bytes, 12).context("DDS missing height")?;
@@ -191,7 +188,7 @@ pub(crate) fn decode_dds_rgba(dds_bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec
         read_u32(dds_bytes, 104).context("DDS missing A mask")?,
     ];
     let payload = dds_bytes
-        .get(128..)
+        .get(DDS_HEADER_LEN..)
         .context("DDS missing texture payload")?;
     let (rgba, format) = match fourcc {
         b"DXT1" => (
@@ -206,11 +203,11 @@ pub(crate) fn decode_dds_rgba(dds_bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec
             decode_dxt5_rgba(payload, width as usize, height as usize, false)?,
             "DXT5".to_string(),
         ),
-        b"\0\0\0\0" if pf_flags & 0x40 != 0 => (
+        b"\0\0\0\0" if pf_flags & DDPF_RGB != 0 => (
             decode_uncompressed_dds_rgba(payload, width, height, rgb_bit_count, masks)?,
             format!("RGB{rgb_bit_count}"),
         ),
-        b"\0\0\0\0" if pf_flags & 0x80000 != 0 => (
+        b"\0\0\0\0" if pf_flags & DDPF_BUMPDUDV != 0 => (
             decode_uncompressed_dds_rgba(payload, width, height, rgb_bit_count, masks)?,
             format!("BUMP{rgb_bit_count}"),
         ),
@@ -229,10 +226,10 @@ fn decode_uncompressed_dds_rgba(
     rgb_bit_count: u32,
     masks: [u32; 4],
 ) -> anyhow::Result<Vec<u8>> {
-    let bytes_per_pixel = (rgb_bit_count / 8) as usize;
-    if !matches!(bytes_per_pixel, 2..=4) {
+    if !(16..=32).contains(&rgb_bit_count) || !rgb_bit_count.is_multiple_of(8) {
         bail!("unsupported uncompressed DDS bit depth {rgb_bit_count}");
     }
+    let bytes_per_pixel = (rgb_bit_count / 8) as usize;
     let width = usize::try_from(width).context("DDS width does not fit usize")?;
     let height = usize::try_from(height).context("DDS height does not fit usize")?;
     let pixel_count = checked_pixel_count(width, height, "uncompressed DDS")?;
@@ -264,7 +261,7 @@ fn decode_uncompressed_dds_rgba(
             ]),
             _ => unreachable!(),
         };
-        let dst = i * 4;
+        let dst = i * RGBA_BYTES_PER_PIXEL;
         rgba[dst] = extract_masked_channel(raw, masks[0]);
         rgba[dst + 1] = extract_masked_channel(raw, masks[1]);
         rgba[dst + 2] = extract_masked_channel(raw, masks[2]);
@@ -282,8 +279,8 @@ fn extract_masked_channel(raw: u32, mask: u32) -> u8 {
         return 0;
     }
     let shift = mask.trailing_zeros();
-    let max = mask >> shift;
-    let value = (raw & mask) >> shift;
+    let max = u64::from(mask >> shift);
+    let value = u64::from((raw & mask) >> shift);
     ((value * 255 + max / 2) / max) as u8
 }
 
@@ -303,21 +300,16 @@ fn save_atex_as_png_with_alpha_policy(
         // Skill icons use client-specific alpha/luminance data; ordinary PNG viewers
         // display that as false transparency, so skill export keeps the existing
         // opaque policy. Inventory-icon investigations can preserve alpha separately.
-        for chunk in rgba.chunks_exact_mut(4) {
-            chunk[3] = 255;
+        for pixel in rgba.chunks_exact_mut(RGBA_BYTES_PER_PIXEL) {
+            pixel[3] = 255;
         }
     }
-    let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, rgba)
-        .context("decoded ATEX RGBA buffer has invalid dimensions")?;
-    image
-        .save(out_path)
-        .with_context(|| format!("writing PNG {}", out_path.display()))?;
-    Ok(())
+    save_rgba_as_png(width, height, &rgba, out_path)
 }
 
 pub(crate) fn decode_atex_rgba(atex_bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
     let header = parse_header(atex_bytes)?;
-    let dxt = decompress_atex_to_dxt5(atex_bytes, header)?;
+    let dxt = decompress_atex_blocks(atex_bytes, header)?;
     let rgba = match header.format {
         AtexDxtFormat::Dxt1 => {
             decode_dxt1_rgba(&dxt, header.width as usize, header.height as usize)?
@@ -353,14 +345,14 @@ fn checked_pixel_count(width: usize, height: usize, context: &str) -> anyhow::Re
 
 fn checked_rgba_len(width: usize, height: usize, context: &str) -> anyhow::Result<usize> {
     checked_pixel_count(width, height, context)?
-        .checked_mul(4)
+        .checked_mul(RGBA_BYTES_PER_PIXEL)
         .with_context(|| format!("{context} RGBA byte count overflow"))
 }
 
 fn dxt_block_count(width: usize, height: usize, context: &str) -> anyhow::Result<usize> {
     checked_pixel_count(width, height, context)?;
-    let blocks_x = width.div_ceil(4);
-    let blocks_y = height.div_ceil(4);
+    let blocks_x = width.div_ceil(DXT_BLOCK_SIDE);
+    let blocks_y = height.div_ceil(DXT_BLOCK_SIDE);
     blocks_x
         .checked_mul(blocks_y)
         .with_context(|| format!("{context} DXT block count overflow"))
@@ -370,19 +362,52 @@ fn dxt_block_count(width: usize, height: usize, context: &str) -> anyhow::Result
 mod tests {
     use super::*;
 
+    fn uncompressed_dds(
+        width: u32,
+        height: u32,
+        flags: u32,
+        bit_count: u32,
+        masks: [u32; 4],
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let mut dds = vec![0_u8; DDS_HEADER_LEN];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[4..8].copy_from_slice(&DDS_HEADER_SIZE.to_le_bytes());
+        dds[12..16].copy_from_slice(&height.to_le_bytes());
+        dds[16..20].copy_from_slice(&width.to_le_bytes());
+        dds[80..84].copy_from_slice(&flags.to_le_bytes());
+        dds[88..92].copy_from_slice(&bit_count.to_le_bytes());
+        for (offset, mask) in [92, 96, 100, 104].into_iter().zip(masks) {
+            dds[offset..offset + 4].copy_from_slice(&mask.to_le_bytes());
+        }
+        dds.extend_from_slice(payload);
+        dds
+    }
+
     #[test]
     fn uncompressed_dds_rejects_oversized_dimensions_before_payload_len() {
-        let mut dds = vec![0_u8; 128];
-        dds[..4].copy_from_slice(b"DDS ");
-        dds[4..8].copy_from_slice(&124_u32.to_le_bytes());
-        dds[12..16].copy_from_slice(&8193_u32.to_le_bytes());
-        dds[16..20].copy_from_slice(&8193_u32.to_le_bytes());
-        dds[80..84].copy_from_slice(&0x40_u32.to_le_bytes());
-        dds[88..92].copy_from_slice(&32_u32.to_le_bytes());
+        let dds = uncompressed_dds(8193, 8193, DDPF_RGB, 32, [0; 4], &[]);
 
         let err = decode_dds_rgba(&dds).expect_err("oversized DDS must fail before allocation");
 
         assert!(err.to_string().contains("texture too large"));
+    }
+
+    #[test]
+    fn uncompressed_dds_rejects_non_byte_aligned_depth() {
+        let dds = uncompressed_dds(1, 1, DDPF_RGB, 17, [0xffff, 0, 0, 0], &[0, 0]);
+
+        let err = decode_dds_rgba(&dds).expect_err("17-bit DDS must be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported uncompressed DDS bit depth 17")
+        );
+    }
+
+    #[test]
+    fn masked_channel_scaling_handles_a_full_width_mask() {
+        assert_eq!(extract_masked_channel(u32::MAX, u32::MAX), 255);
     }
 
     #[test]
@@ -394,16 +419,7 @@ mod tests {
 
     #[test]
     fn dds_bump16_preserves_both_stored_channels() {
-        let mut dds = vec![0_u8; 130];
-        dds[..4].copy_from_slice(b"DDS ");
-        dds[4..8].copy_from_slice(&124_u32.to_le_bytes());
-        dds[12..16].copy_from_slice(&1_u32.to_le_bytes());
-        dds[16..20].copy_from_slice(&1_u32.to_le_bytes());
-        dds[80..84].copy_from_slice(&0x80000_u32.to_le_bytes());
-        dds[88..92].copy_from_slice(&16_u32.to_le_bytes());
-        dds[92..96].copy_from_slice(&0xff_u32.to_le_bytes());
-        dds[96..100].copy_from_slice(&0xff00_u32.to_le_bytes());
-        dds[128..].copy_from_slice(&[10, 20]);
+        let dds = uncompressed_dds(1, 1, DDPF_BUMPDUDV, 16, [0xff, 0xff00, 0, 0], &[10, 20]);
 
         let (width, height, rgba, format) = decode_dds_rgba(&dds).unwrap();
 

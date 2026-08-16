@@ -56,7 +56,7 @@ The supported FourCC families and their final block decoders are:
 | `DXT4`, `DXT5`, `DXTL` | DXT5 / BC3 | 16 |
 | `DXTA` | DXT5-alpha / BC4, exported as opaque greyscale | 8 |
 
-`DXTL` uses the DXT5-family path with premultiplied color channels. `DXTA` has no color plane: its single interpolated channel is copied to RGB and exported with opaque alpha. An `ATTX` MFT payload can contain non-word trailing container bytes after the encoded image; only the declared image data and complete tail words participate in decoding.
+`DXTL` uses the DXT5-family path with premultiplied color channels. `DXTA` has no color plane: its single interpolated channel is copied to RGB and exported with opaque alpha. DXTA decompression emits exactly its two alpha words per block; it does not reserve color-word padding. An `ATTX` MFT payload can contain non-word trailing container bytes after the encoded image; only the declared image data and complete tail words participate in decoding.
 
 ## 4. Planar ATEX layout
 
@@ -81,7 +81,7 @@ The field at `0x10` is a bitfield:
 | `0x1` | `DXT1` | Subcode 2 fills constant DXT1 blocks. |
 | `0x2` | `DXT2`, `DXT3`, `DXTN` | Subcode 3 fills DXT3-family alpha blocks. |
 | `0x4` | `DXT4`, `DXT5`, `DXTA`, `DXTL` | Subcode 4 fills DXT5-family alpha blocks. |
-| `0x8` | All supported families | Subcode 5 fills color endpoint/index blocks. |
+| `0x8` | Formats with a color plane | Subcode 5 fills color endpoint/index blocks. |
 | `0x10` | 256×256 DXT3-family textures | Subcodes 1 and 7 reserve and unswizzle the two outer block rows and columns. |
 
 The subcodes mark the block components they fill. Planar tail words fill the unmarked alpha and color components. The completed interleaved blocks are then decoded with the family mapping above.

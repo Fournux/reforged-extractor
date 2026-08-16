@@ -1,24 +1,33 @@
 use anyhow::Context;
 
-use super::checked_rgba_len;
+use super::{DXT_BLOCK_SIDE, RGBA_BYTES_PER_PIXEL, checked_rgba_len};
+
+const DXT_BLOCK_PIXELS: usize = DXT_BLOCK_SIDE * DXT_BLOCK_SIDE;
+const DXT1_BLOCK_BYTES: usize = 8;
+const DXT3_BLOCK_BYTES: usize = 16;
+const DXT5_BLOCK_BYTES: usize = 16;
+const DXTA_BLOCK_BYTES: usize = 8;
 
 pub(super) fn decode_dxta_rgba(dxt: &[u8], width: usize, height: usize) -> anyhow::Result<Vec<u8>> {
     let rgba_len = checked_rgba_len(width, height, "DXTA")?;
     let mut rgba = vec![0_u8; rgba_len];
     let mut pos = 0;
-    for block_y in (0..height).step_by(4) {
-        for block_x in (0..width).step_by(4) {
-            let block = dxt.get(pos..pos + 8).context("DXTA block underrun")?;
-            pos += 8;
+    for block_y in (0..height).step_by(DXT_BLOCK_SIDE) {
+        for block_x in (0..width).step_by(DXT_BLOCK_SIDE) {
+            let block = dxt
+                .get(pos..pos + DXTA_BLOCK_BYTES)
+                .context("DXTA block underrun")?;
+            pos += DXTA_BLOCK_BYTES;
             let decoded = decode_dxt5_alpha_block(block);
-            for y in 0..4 {
-                for x in 0..4 {
+            for y in 0..DXT_BLOCK_SIDE {
+                for x in 0..DXT_BLOCK_SIDE {
                     if block_y + y >= height || block_x + x >= width {
                         continue;
                     }
-                    let value = decoded[y * 4 + x];
-                    let dst = ((block_y + y) * width + block_x + x) * 4;
-                    rgba[dst..dst + 4].copy_from_slice(&[value, value, value, 255]);
+                    let value = decoded[y * DXT_BLOCK_SIDE + x];
+                    let dst = ((block_y + y) * width + block_x + x) * RGBA_BYTES_PER_PIXEL;
+                    rgba[dst..dst + RGBA_BYTES_PER_PIXEL]
+                        .copy_from_slice(&[value, value, value, 255]);
                 }
             }
         }
@@ -35,24 +44,26 @@ pub(super) fn decode_dxt5_rgba(
     let rgba_len = checked_rgba_len(width, height, "DXT5")?;
     let mut rgba = vec![0_u8; rgba_len];
     let mut pos = 0;
-    for block_y in (0..height).step_by(4) {
-        for block_x in (0..width).step_by(4) {
-            let block = dxt.get(pos..pos + 16).context("DXT5 block underrun")?;
-            pos += 16;
+    for block_y in (0..height).step_by(DXT_BLOCK_SIDE) {
+        for block_x in (0..width).step_by(DXT_BLOCK_SIDE) {
+            let block = dxt
+                .get(pos..pos + DXT5_BLOCK_BYTES)
+                .context("DXT5 block underrun")?;
+            pos += DXT5_BLOCK_BYTES;
             let decoded = decode_dxt5_block(block);
-            for y in 0..4 {
-                for x in 0..4 {
+            for y in 0..DXT_BLOCK_SIDE {
+                for x in 0..DXT_BLOCK_SIDE {
                     if block_y + y >= height || block_x + x >= width {
                         continue;
                     }
-                    let (mut r, mut g, mut b, a) = decoded[y * 4 + x];
+                    let (mut r, mut g, mut b, a) = decoded[y * DXT_BLOCK_SIDE + x];
                     if premultiply {
                         r = ((u16::from(r) * u16::from(a)) / 255) as u8;
                         g = ((u16::from(g) * u16::from(a)) / 255) as u8;
                         b = ((u16::from(b) * u16::from(a)) / 255) as u8;
                     }
-                    let dst = ((block_y + y) * width + block_x + x) * 4;
-                    rgba[dst..dst + 4].copy_from_slice(&[r, g, b, a]);
+                    let dst = ((block_y + y) * width + block_x + x) * RGBA_BYTES_PER_PIXEL;
+                    rgba[dst..dst + RGBA_BYTES_PER_PIXEL].copy_from_slice(&[r, g, b, a]);
                 }
             }
         }
@@ -63,10 +74,12 @@ pub(super) fn decode_dxt3_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
     let rgba_len = checked_rgba_len(width, height, "DXT3")?;
     let mut rgba = vec![0_u8; rgba_len];
     let mut pos = 0;
-    for block_y in (0..height).step_by(4) {
-        for block_x in (0..width).step_by(4) {
-            let block = dxt.get(pos..pos + 16).context("DXT3 block underrun")?;
-            pos += 16;
+    for block_y in (0..height).step_by(DXT_BLOCK_SIDE) {
+        for block_x in (0..width).step_by(DXT_BLOCK_SIDE) {
+            let block = dxt
+                .get(pos..pos + DXT3_BLOCK_BYTES)
+                .context("DXT3 block underrun")?;
+            pos += DXT3_BLOCK_BYTES;
 
             let color0 = u16::from_le_bytes([block[8], block[9]]);
             let color1 = u16::from_le_bytes([block[10], block[11]]);
@@ -77,14 +90,14 @@ pub(super) fn decode_dxt3_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
             color_table[2] = lerp_rgb(color_table[0], color_table[1], 2, 1, 3);
             color_table[3] = lerp_rgb(color_table[0], color_table[1], 1, 2, 3);
 
-            for y in 0..4 {
-                for x in 0..4 {
+            for y in 0..DXT_BLOCK_SIDE {
+                for x in 0..DXT_BLOCK_SIDE {
                     if block_y + y >= height || block_x + x >= width {
                         continue;
                     }
-                    let i = y * 4 + x;
+                    let i = y * DXT_BLOCK_SIDE + x;
                     let alpha_byte = block[i / 2];
-                    let alpha_nibble = if i % 2 == 0 {
+                    let alpha_nibble = if i.is_multiple_of(2) {
                         alpha_byte & 0x0f
                     } else {
                         alpha_byte >> 4
@@ -92,8 +105,8 @@ pub(super) fn decode_dxt3_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
                     let color_index = ((color_bits >> (2 * i)) & 3) as usize;
                     let (r, g, b) = color_table[color_index];
                     let a = (u16::from(alpha_nibble) * 17) as u8;
-                    let dst = ((block_y + y) * width + block_x + x) * 4;
-                    rgba[dst..dst + 4].copy_from_slice(&[r, g, b, a]);
+                    let dst = ((block_y + y) * width + block_x + x) * RGBA_BYTES_PER_PIXEL;
+                    rgba[dst..dst + RGBA_BYTES_PER_PIXEL].copy_from_slice(&[r, g, b, a]);
                 }
             }
         }
@@ -105,10 +118,12 @@ pub(super) fn decode_dxt1_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
     let rgba_len = checked_rgba_len(width, height, "DXT1")?;
     let mut rgba = vec![0_u8; rgba_len];
     let mut pos = 0;
-    for block_y in (0..height).step_by(4) {
-        for block_x in (0..width).step_by(4) {
-            let block = dxt.get(pos..pos + 8).context("DXT1 block underrun")?;
-            pos += 8;
+    for block_y in (0..height).step_by(DXT_BLOCK_SIDE) {
+        for block_x in (0..width).step_by(DXT_BLOCK_SIDE) {
+            let block = dxt
+                .get(pos..pos + DXT1_BLOCK_BYTES)
+                .context("DXT1 block underrun")?;
+            pos += DXT1_BLOCK_BYTES;
 
             let color0 = u16::from_le_bytes([block[0], block[1]]);
             let color1 = u16::from_le_bytes([block[2], block[3]]);
@@ -131,16 +146,16 @@ pub(super) fn decode_dxt1_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
                 color_table[3] = (0, 0, 0, 0); // Transparent black
             }
 
-            for y in 0..4 {
-                for x in 0..4 {
+            for y in 0..DXT_BLOCK_SIDE {
+                for x in 0..DXT_BLOCK_SIDE {
                     if block_y + y >= height || block_x + x >= width {
                         continue;
                     }
-                    let i = y * 4 + x;
+                    let i = y * DXT_BLOCK_SIDE + x;
                     let color_index = ((color_bits >> (2 * i)) & 3) as usize;
                     let (r, g, b, a) = color_table[color_index];
-                    let dst = ((block_y + y) * width + block_x + x) * 4;
-                    rgba[dst..dst + 4].copy_from_slice(&[r, g, b, a]);
+                    let dst = ((block_y + y) * width + block_x + x) * RGBA_BYTES_PER_PIXEL;
+                    rgba[dst..dst + RGBA_BYTES_PER_PIXEL].copy_from_slice(&[r, g, b, a]);
                 }
             }
         }
@@ -148,7 +163,7 @@ pub(super) fn decode_dxt1_rgba(dxt: &[u8], width: usize, height: usize) -> anyho
     Ok(rgba)
 }
 
-fn decode_dxt5_block(block: &[u8]) -> [(u8, u8, u8, u8); 16] {
+fn decode_dxt5_block(block: &[u8]) -> [(u8, u8, u8, u8); DXT_BLOCK_PIXELS] {
     let alpha = decode_dxt5_alpha_block(block);
     let color0 = u16::from_le_bytes([block[8], block[9]]);
     let color1 = u16::from_le_bytes([block[10], block[11]]);
@@ -159,7 +174,7 @@ fn decode_dxt5_block(block: &[u8]) -> [(u8, u8, u8, u8); 16] {
     color_table[2] = lerp_rgb(color_table[0], color_table[1], 2, 1, 3);
     color_table[3] = lerp_rgb(color_table[0], color_table[1], 1, 2, 3);
 
-    let mut out = [(0_u8, 0_u8, 0_u8, 0_u8); 16];
+    let mut out = [(0_u8, 0_u8, 0_u8, 0_u8); DXT_BLOCK_PIXELS];
     for (i, px) in out.iter_mut().enumerate() {
         let color_index = ((color_bits >> (2 * i)) & 3) as usize;
         let (r, g, b) = color_table[color_index];
@@ -168,7 +183,7 @@ fn decode_dxt5_block(block: &[u8]) -> [(u8, u8, u8, u8); 16] {
     out
 }
 
-fn decode_dxt5_alpha_block(block: &[u8]) -> [u8; 16] {
+fn decode_dxt5_alpha_block(block: &[u8]) -> [u8; DXT_BLOCK_PIXELS] {
     let alpha0 = block[0];
     let alpha1 = block[1];
     let alpha_bits = u64::from_le_bytes([
@@ -191,7 +206,7 @@ fn decode_dxt5_alpha_block(block: &[u8]) -> [u8; 16] {
         alpha_table[7] = 255;
     }
 
-    let mut out = [0_u8; 16];
+    let mut out = [0_u8; DXT_BLOCK_PIXELS];
     for (i, value) in out.iter_mut().enumerate() {
         let alpha_index = ((alpha_bits >> (3 * i)) & 7) as usize;
         *value = alpha_table[alpha_index];

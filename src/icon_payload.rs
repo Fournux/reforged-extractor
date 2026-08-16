@@ -121,7 +121,7 @@ pub(crate) fn find_inline_atex_payload(bytes: &[u8]) -> Option<(usize, &[u8], At
 pub(crate) fn find_inline_atex_payloads(
     bytes: &[u8],
 ) -> impl Iterator<Item = (usize, &[u8], AtexHeader)> {
-    let max_start = bytes.len().saturating_sub(20);
+    let max_start = bytes.len().saturating_sub(atex::ATEX_ENCODED_HEADER_LEN);
     (0..=max_start).filter_map(move |offset| {
         let magic = bytes.get(offset..offset + 4)?;
         if magic != b"ATEX" && magic != b"ATTX" {
@@ -129,7 +129,7 @@ pub(crate) fn find_inline_atex_payloads(
         }
         let payload_len = bytes.len() - offset;
         let aligned_len = payload_len - (payload_len % 4);
-        if aligned_len < 20 {
+        if aligned_len < atex::ATEX_ENCODED_HEADER_LEN {
             return None;
         }
         let payload = &bytes[offset..offset + aligned_len];
