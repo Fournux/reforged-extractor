@@ -63,7 +63,7 @@ extract-quests: check-gw-dat check-capture-dir
 extract-npcs: check-gw-dat check-capture-dir
 	$(call require_capture_file,reforged_npcs.jsonl)
 	$(EXTRACT) npcs --snapshot "$(GW_DAT)" \
-		--packet-log "$(CAPTURE_PATH)/reforged_npcs.jsonl" $(if $(wildcard $(CAPTURE_PATH)/reforged_collectors.jsonl),--packet-log "$(CAPTURE_PATH)/reforged_collectors.jsonl")
+		--packet-log "$(CAPTURE_PATH)/reforged_npcs.jsonl"
 
 extract-vendors: check-gw-dat check-vendor-logs
 	$(EXTRACT) vendors --snapshot "$(GW_DAT)" $(VENDOR_ARGS)
