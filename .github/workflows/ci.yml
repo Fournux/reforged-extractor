@@ -62,3 +62,20 @@ jobs:
 
       - name: Run tests
         run: cargo test --package reforged_injector --package reforged_sniffer --all-targets --target i686-pc-windows-msvc --locked
+
+  security:
+    name: RustSec dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

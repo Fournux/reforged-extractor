@@ -1,4 +1,4 @@
-.PHONY: all build build-capture inject extract extract-all extract-skills extract-images extract-items extract-quests extract-npcs extract-vendors validate-items regen check test fmt setup-hooks help check-gw-dat check-capture-dir check-vendor-logs
+.PHONY: all build build-capture inject extract extract-all extract-skills extract-images extract-items extract-quests extract-npcs extract-vendors validate-items regen check audit test fmt setup-hooks help check-gw-dat check-capture-dir check-vendor-logs
 
 PYTHON ?= python3
 GW_DAT ?= $(HOME)/.local/share/Steam/steamapps/common/Guild Wars/Gw.dat
@@ -76,7 +76,10 @@ regen: extract-all
 
 check:
 	cargo fmt --all -- --check
-	cargo check --workspace
+	cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+audit:
+	cargo audit
 
 test:
 	cargo test --workspace
@@ -101,7 +104,8 @@ help:
 	@echo "  extract-vendors Extract vendors (requires capture)"
 	@echo "  validate-items  Validate items output catalog"
 	@echo "  regen           Run extract-all and validate-items"
-	@echo "  check           Run cargo fmt check & cargo check"
+	@echo "  check           Run cargo fmt check & Clippy (warnings denied)"
+	@echo "  audit           Audit dependencies with RustSec"
 	@echo "  test            Run cargo test"
 	@echo "  fmt             Run cargo fmt"
 	@echo "  setup-hooks     Configure Git to use .githooks/ pre-commit hook"

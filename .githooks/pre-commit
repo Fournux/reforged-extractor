@@ -1,11 +1,4 @@
 #!/bin/sh
-# Pre-commit hook to ensure code formatting passes before committing.
+set -eu
 
-echo "Checking code formatting with cargo fmt..."
-cargo fmt --all -- --check
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "❌ cargo fmt check failed!"
-    echo "Please run 'cargo fmt --all' (or 'make fmt') to fix formatting before committing."
-    exit 1
-fi
+exec make check test audit
