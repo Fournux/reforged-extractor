@@ -1,6 +1,6 @@
-# ReforgedExtractor / Guild Wars Database Extractor
+# Reforged Extractor
 
-ReforgedExtractor reverse-engineers the official Guild Wars client data pipeline to build a structured, reproducible game database from local first-party files.
+**Reforged Extractor** (`reforged-extractor`) reverse-engineers the official Guild Wars client data pipeline to build a structured, reproducible game database from local first-party files.
 
 Technical findings about archive formats, decompression, resource indexing, string resolution, and runtime evidence belong in the focused references under [`doc/`](doc/README.md).
 
@@ -8,24 +8,24 @@ Technical findings about archive formats, decompression, resource indexing, stri
 
 Extract and preserve as much game data and as many resources as possible from the local `Gw.dat` archive and local `.snapshot` files: skills, items, localized strings, images, models, metadata, and their relationships.
 
-The intended result is an offline extractor that reproduces the official client's behavior for locating, decoding, decompressing, and resolving resources from `Gw.dat`. The current skills output is one validation milestone, not the limit of the project.
+The intended result is an offline extractor that reproduces the official client's behavior for locating, decoding, decompressing, and resolving first-party data. It is not limited to any current resource or output.
 
-## 2. Source Policy and Precedence
+## 2. Data Sources and Precedence
 
 Use sources in this order:
 
-1. **`Gw.dat` and `.snapshot` files are primary.** Determine whether each value or resource is present there before introducing a runtime dependency.
-2. **The official client is the behavioral reference.** Its executable and runtime may be inspected, debugged, disassembled, or minimally instrumented to understand the exact indexing, decoding, decompression, and string-resolution behavior that the extractor must reproduce.
-3. **Official client packets are a narrow fallback.** Sniff packets only for fields or mappings shown to be absent from `Gw.dat` and `.snapshot`, not merely because their archive representation is still unknown. Capture only the required packet family and fields.
-4. **External data is forbidden.** Do not fetch, scrape, or import game data from websites, public APIs, wikis, or third-party repositories.
+1. **`Gw.dat` and `.snapshot` files first.** Extract required values and resources directly whenever possible. Determine whether the data is present and how it is encoded before relying on runtime data.
+2. **The official client as the behavioral reference.** Its executable and runtime may be inspected, debugged, disassembled, or minimally instrumented to reproduce its indexing, decoding, decompression, and string-resolution behavior offline.
+3. **Minimal official-client captures as a fallback.** When required values or relations cannot be extracted reliably from the primary files, sniff only the packet families and fields needed to supply them. Emit JSONL logs containing the minimum runtime evidence, join identifiers, and validation metadata.
+4. **No external game data.** Do not fetch, scrape, or import game data from websites, public APIs, wikis, or third-party repositories.
 
-Packet captures may enrich data that genuinely does not exist in the primary files. They must not replace archive investigation or become a shortcut around reproducing official client behavior.
+JSONL captures are intermediate inputs, not final datasets. Cross-reference them with `Gw.dat` and `.snapshot` data to resolve strings, images, models, metadata, and other archive-backed values, then emit the deterministic final JSON required by the supported extractor. Do not capture or retain data that primary files can supply, except identifiers and provenance required for joins and validation.
 
 ## 3. Runtime Instrumentation Rules
 
-* Keep hooks and packet logging minimal: observe only the code path, packet type, or field needed for the current unresolved question.
+* Keep hooks and packet logging minimal: observe only the code path, packet type, fields, and capture metadata required by the unresolved extraction.
 * Prefer reproducing a client algorithm in the offline extractor over repeatedly calling the running client.
-* Treat runtime observations as reverse-engineering evidence. Document the corresponding client behavior, file structure, or proven data gap.
+* Treat runtime observations as reverse-engineering evidence. Document the corresponding client behavior, file structure, or confirmed primary-file gap.
 * Do not retain unrelated traffic or add speculative hooks.
 
 ## 4. Engineering Constraints
@@ -37,43 +37,17 @@ Packet captures may enrich data that genuinely does not exist in the primary fil
 * Optimize byte access and allocation only where extraction volume or measurements justify it.
 * Code under `references/` is outdated. Use it only as conceptual evidence; never copy or directly translate it without validating the behavior against current first-party files and the official client.
 
-## 5. Extraction Coverage
+## 5. Output Requirements
 
-For every supported resource, extract all available embedded identifiers, localized strings, file/model mappings, gameplay metadata, flags, and relationships. Structured outputs must be deterministic and retain enough stable identifiers to join related resources.
+For every supported resource, follow its focused specification under [`doc/`](doc/README.md) and extract the relevant embedded identifiers, localized strings, file/model mappings, gameplay metadata, flags, and relationships.
 
-For skills this includes, at minimum:
+Final JSON outputs must be deterministic and retain enough stable identifiers to join related resources.
 
-* Skill name and ID
-* Energy cost
-* Activation time
-* Recharge duration
-* Elite status
-* Campaign origin
+## 6. Workflow
 
-## 6. Current Skills Validation Milestone
-
-The skills pipeline is valid only when the current template corpus contains
-1,333 non-PvP IDs plus 155 current PvP variants and its campaign distribution
-matches:
-
-| Campaign | Non-Elite | Elite | Total |
-| --- | ---: | ---: | ---: |
-| Core | 233 | 48 | 281 |
-| Prophecies | 159 | 70 | 229 |
-| Factions | 292 | 104 | 396 |
-| Nightfall | 294 | 125 | 419 |
-| Eye of the North | 160 | 3 | 163 |
-| **Grand Total** | **1138** | **350** | **1488** |
-
-Select non-PvP equip/use-family `1` rows directly. Add a PvP equip/use-family
-`0` row only when its ID and a selected base row's linked ID at `0x2c` point
-to each other. Keep every selected ID distinct regardless of duplicate names.
-
-## 7. Workflow
-
-1. Inventory what is present in `Gw.dat` and `.snapshot`; distinguish missing data from data whose encoding is not yet understood.
-2. Trace the official client behavior needed to locate and decode those resources.
-3. Add the smallest possible runtime hook or packet capture only when primary-file analysis cannot answer the question.
-4. Implement the discovered behavior in the offline Rust extraction pipeline.
-5. Record confirmed format and algorithm findings in the appropriate focused reference under `doc/`.
-6. Validate outputs with exact counts, invariants, representative resources, and client behavior where applicable.
+1. Define the required final JSON fields and inventory what `Gw.dat` and `.snapshot` contain; distinguish absent data from data whose encoding is not yet understood.
+2. Trace the official client behavior needed to locate and decode those resources, then implement reliable direct extraction in the offline Rust pipeline whenever possible.
+3. Only when required values or relations cannot be extracted directly, add the smallest runtime hook or packet capture and emit only the necessary JSONL evidence and join identifiers.
+4. Cross-reference that JSONL evidence with `Gw.dat` and `.snapshot` data to resolve archive-backed strings, images, models, metadata, and relationships into the final JSON.
+5. Record confirmed formats, algorithms, client behavior, and primary-file gaps in the appropriate focused reference under `doc/`.
+6. Validate final outputs with exact counts, invariants, representative resources, and official-client behavior where applicable.
