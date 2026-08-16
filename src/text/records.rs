@@ -1,21 +1,7 @@
 use anyhow::{Context, bail};
 use std::collections::BTreeMap;
 
-pub(crate) const CLIENT_TEXT_FILES_PER_LANGUAGE: usize = 99;
 pub(crate) const TEXT_RECORDS_PER_FILE: u32 = 1024;
-pub(crate) const CLIENT_LANGUAGE_CODES: &[(usize, &str)] = &[
-    (0, "en"),
-    (1, "ko"),
-    (2, "fr"),
-    (3, "de"),
-    (4, "it"),
-    (5, "es"),
-    (6, "zh_tw"),
-    (7, "zh_cn"),
-    (8, "ja"),
-    (9, "pl"),
-    (10, "ru"),
-];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TextRecord {

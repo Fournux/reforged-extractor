@@ -1,13 +1,23 @@
 use anyhow::Context;
 use std::{collections::BTreeMap, path::Path};
 
-use crate::{
-    dat::DatArchive,
-    pe::PeImage,
-    text_records::{
-        self, CLIENT_LANGUAGE_CODES, CLIENT_TEXT_FILES_PER_LANGUAGE, TEXT_RECORDS_PER_FILE,
-    },
-};
+use super::records::{self, TEXT_RECORDS_PER_FILE};
+use crate::{dat::DatArchive, pe::PeImage};
+
+const CLIENT_TEXT_FILES_PER_LANGUAGE: usize = 99;
+const CLIENT_LANGUAGE_CODES: &[(usize, &str)] = &[
+    (0, "en"),
+    (1, "ko"),
+    (2, "fr"),
+    (3, "de"),
+    (4, "it"),
+    (5, "es"),
+    (6, "zh_tw"),
+    (7, "zh_cn"),
+    (8, "ja"),
+    (9, "pl"),
+    (10, "ru"),
+];
 
 #[derive(Debug, Default)]
 pub(crate) struct LocalizedTextCatalog {
@@ -115,7 +125,7 @@ impl<'a> LocalizedTextReader<'a> {
                         .then_some((text_id % TEXT_RECORDS_PER_FILE, seed))
                 })
                 .collect::<BTreeMap<_, _>>();
-            let records = text_records::parse_text_record_map_with_decoded_records_and_seeds(
+            let records = records::parse_text_record_map_with_decoded_records_and_seeds(
                 &entry_bytes,
                 self.decoded_records,
                 &compact_seeds,

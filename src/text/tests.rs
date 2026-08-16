@@ -1,5 +1,5 @@
+use super::records;
 use super::*;
-use crate::text_records;
 
 #[test]
 fn utf16le_strings_extracts_offsets_and_ignores_short_noise() {
@@ -94,7 +94,7 @@ fn text_record_parser_recovers_shifted_uncompressed_utf16le_entries_and_map_keys
     let second_payload = utf16le_payload("Second skill line");
     bytes.extend_from_slice(&text_record_bytes(0, 0x10, 0, &second_payload));
 
-    let records = text_records::parse_text_record_entries(&bytes)?;
+    let records = records::parse_text_record_entries(&bytes)?;
 
     assert_eq!(records.len(), 2);
     assert_eq!(records[0].record_start, first_record_start);
@@ -110,7 +110,7 @@ fn text_record_parser_recovers_shifted_uncompressed_utf16le_entries_and_map_keys
     assert_eq!(records[1].record_index, 2);
     assert_eq!(records[1].text, "Second skill line");
 
-    let map = text_records::parse_text_record_map(&bytes)?;
+    let map = records::parse_text_record_map(&bytes)?;
     assert_eq!(map.get(&0), None);
     assert_eq!(map.get(&1).map(String::as_str), Some("First skill line"));
     assert_eq!(map.get(&2).map(String::as_str), Some("Second skill line"));

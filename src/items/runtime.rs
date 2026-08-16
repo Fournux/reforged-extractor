@@ -15,9 +15,9 @@ use crate::{
         apply_encoded_template,
         catalog::{LocalizedTextReader, resolve_localized_text_catalog_with_client},
         encoded_values_from_hex, encoded_values_from_words, encoded_words_from_hex, hex_to_bytes,
+        records::{self, TEXT_RECORDS_PER_FILE},
         text_references,
     },
-    text_records::{self, TEXT_RECORDS_PER_FILE},
 };
 
 mod capture;

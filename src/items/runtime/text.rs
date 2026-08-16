@@ -313,7 +313,7 @@ pub(super) fn build_item_name_catalog(
         };
         let base_ordinal = calc_runtime_ordinal_base(resource_file_id);
 
-        for record in text_records::parse_text_record_entries(&entry_bytes).with_context(|| {
+        for record in records::parse_text_record_entries(&entry_bytes).with_context(|| {
             format!("parsing item text records from DAT file {resource_file_id}")
         })? {
             if !in_ranges(record.ordinal, source.ranges) {

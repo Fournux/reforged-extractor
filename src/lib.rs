@@ -14,7 +14,6 @@ mod pe;
 mod quests;
 mod skills;
 mod text;
-mod text_records;
 mod vendors;
 mod workflows;
 

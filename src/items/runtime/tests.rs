@@ -231,7 +231,7 @@ fn packet_log_text_decode_trace_rows_feed_compact_text_record_lookup() -> anyhow
     )?;
     let decoded_records = packet_log_decoded_text_records(&packet_log)?;
 
-    let map = text_records::parse_text_record_map_with_decoded_records(
+    let map = records::parse_text_record_map_with_decoded_records(
         &[
             0x0d, 0x00, 0x42, 0x00, 0x07, 0x00, 0x09, 0xce, 0xf0, 0x9b, 0x81, 0x68, 0xe4,
         ],
@@ -244,7 +244,7 @@ fn packet_log_text_decode_trace_rows_feed_compact_text_record_lookup() -> anyhow
 
 #[test]
 fn compact_record_without_seed_stays_unresolved() -> anyhow::Result<()> {
-    let map = text_records::parse_text_record_map_with_decoded_records_and_seeds(
+    let map = records::parse_text_record_map_with_decoded_records_and_seeds(
         &[
             0x0d, 0x00, 0x42, 0x00, 0x07, 0x00, 0x09, 0xce, 0xf0, 0x9b, 0x81, 0x68, 0xe4,
         ],
@@ -258,7 +258,7 @@ fn compact_record_without_seed_stays_unresolved() -> anyhow::Result<()> {
 
 #[test]
 fn compact_record_seed_decodes_without_client_string_output() -> anyhow::Result<()> {
-    let map = text_records::parse_text_record_map_with_decoded_records_and_seeds(
+    let map = records::parse_text_record_map_with_decoded_records_and_seeds(
         &[
             0x0d, 0x00, 0x42, 0x00, 0x07, 0x00, 0x09, 0xce, 0xf0, 0x9b, 0x81, 0x68, 0xe4,
         ],
@@ -272,7 +272,7 @@ fn compact_record_seed_decodes_without_client_string_output() -> anyhow::Result<
 
 #[test]
 fn compact_record_seed_decodes_japanese_width_16() -> anyhow::Result<()> {
-    let map = text_records::parse_text_record_map_with_decoded_records_and_seeds(
+    let map = records::parse_text_record_map_with_decoded_records_and_seeds(
         &[
             0x1c, 0x00, 0x6e, 0x30, 0x10, 0x00, 0x1a, 0x56, 0x3f, 0x66, 0xbb, 0xe4, 0xae, 0xf0,
             0x01, 0xae, 0x7e, 0x38, 0xb3, 0xae, 0xe0, 0x77, 0xfd, 0x34, 0xa5, 0x24, 0x74, 0x3f,

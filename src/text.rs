@@ -1,4 +1,5 @@
 pub(crate) mod catalog;
+pub(crate) mod records;
 
 #[cfg(test)]
 #[path = "text/tests.rs"]
