@@ -1,138 +1,108 @@
 # Runtime Capture on Linux with Proton
 
-The runtime sniffer must be loaded into the official 32-bit `Gw.exe` process.
-On Linux, launch the 32-bit injector through the same Proton prefix as Guild
-Wars. Running the injector as a native Linux process, through another Wine
-prefix, or before `Gw.exe` exists cannot work.
+This reference describes the minimum conditions for observing official-client
+runtime state from a 32-bit Guild Wars client under Steam Proton. It is
+implementation-neutral: `<injector>.exe`, `<capture>.dll`, and the capture
+format below stand for an observer's own artifacts and data contract.
 
-## 1. Build the 32-bit Windows artifacts
+## 1. Process boundary
 
-Install the Rust target and [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin)
-once:
+The injector and capture DLL must run as 32-bit Windows binaries in the same
+Proton prefix as the official `Gw.exe` process. A native Linux injector, a
+different Wine prefix, or injection before `Gw.exe` exists cannot reach that
+process.
+
+## 2. Build 32-bit Windows artifacts
+
+For a Rust implementation, install the target and
+[`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) once:
 
 ```bash
 rustup target add i686-pc-windows-msvc
 cargo install --locked cargo-xwin
 ```
 
-From the repository root, build both the injector and DLL:
+Build the injector and DLL for x86:
 
 ```bash
-bun run build:capture
+XWIN_ARCH=x86 cargo xwin build --release --target i686-pc-windows-msvc
 ```
 
-`build:capture` sets `XWIN_ARCH=x86` so `cargo-xwin` downloads the 32-bit MSVC
-and Windows SDK libraries. A normal Linux
-`cargo build --target i686-pc-windows-msvc` has no MSVC linker or SDK, while the
-default `cargo-xwin` architecture set does not include x86.
+The manifest must select the binary and DLL packages appropriate to the
+implementation. `XWIN_ARCH=x86` is required: a normal Linux Cargo build has no
+MSVC linker or SDK, and `cargo-xwin` does not necessarily download x86 import
+libraries by default.
 
-The command produces:
+## 3. Launch order
 
-```text
-target/i686-pc-windows-msvc/release/reforged_injector.exe
-target/i686-pc-windows-msvc/release/reforged_sniffer.dll
-```
+Copy the generated Windows artifacts beside `Gw.exe`. A launcher started by
+Steam's normal Proton environment must:
 
-## 2. Copy the artifacts into Guild Wars
+1. start `Gw.exe`;
+2. wait until the process exists;
+3. inject the DLL into that process.
 
-For the normal edit-build-test loop, build and copy both artifacts beside
-`Gw.exe` in one step:
-
-```bash
-bun run deploy:capture
-```
-
-The copy runs only after a successful build. Cargo retains its outputs in
-`target`; the game directory receives disposable deployment copies.
-A running client keeps its already loaded DLL; restart Guild Wars to test the
-new build.
-
-## 3. Launch Guild Wars before the injector
-
-Steam expands `%command%` to Proton's normal `waitforexitandrun` invocation.
-The local `steamarbitrarycommand.sh` helper replaces the original Windows
-program after `waitforexitandrun` with the arguments after `--run`.
-Consequently, passing `reforged_injector.exe` directly after `--run` would replace
-`Gw.exe`; there would be no target process to inject.
-
-Use a batch file to start the client first and inject after its process exists.
-Create `reforged_sniffer_launcher.bat` in the Guild Wars installation directory,
-usually:
-
-```text
-$HOME/.local/share/Steam/steamapps/common/Guild Wars/
-```
-
-Batch contents:
+For example, a batch launcher in the game directory can use:
 
 ```bat
 @echo off
-
-cd /D "C:\Program Files (x86)\Guild Wars"
+cd /D "<Guild Wars directory>"
 start "" "Gw.exe"
-
 ping -n 15 127.0.0.1 > nul
-
-".\reforged_injector.exe" Gw.exe ".\reforged_sniffer.dll"
+"<injector>.exe" Gw.exe "<capture>.dll"
 ```
 
-Both artifacts are resolved relative to
-`C:\Program Files (x86)\Guild Wars`, so this launcher does not use Wine's `Z:`
-drive. The 15-ping delay follows the existing GWToolbox launcher pattern.
-Increase it only if the injector reports `process not found: Gw.exe`.
+The delay is only a process-creation wait. Increase it only when the injector
+reports that `Gw.exe` does not exist yet.
 
-Set the Steam launch options to:
+Some Steam wrappers replace the Windows program passed after their `--run`
+argument. With such a wrapper, passing `<injector>.exe` directly would replace
+`Gw.exe` rather than inject into it; pass the batch launcher instead. The exact
+Steam launch-option syntax and compatibility-tool selection are local setup
+details, but `%command%` must expand to Steam's normal Proton launch command.
 
-```text
-/home/USER/steamarbitrarycommand.sh game-performance %command% --run reforged_sniffer_launcher.bat
-```
+## 4. Capture evidence contract
 
-Replace `USER` in the Steam option with the Linux account name. The helper and
-batch must remain readable and the helper must remain executable.
+Write each capture to its own session directory. Keep metadata separate from
+domain data:
 
-## 4. Verify the capture
+| Data | Required content |
+| --- | --- |
+| Capture sidecar | Client-build identity, installed hook groups, packet schemas and expected sizes, and capture-health counters |
+| Domain streams | Only their observed item, quest, NPC, dialogue, or service rows |
 
-With the DLL copied beside `Gw.exe`, each injection writes a new session below:
+Every cross-domain row needs a session identifier and one session-monotonic
+sequence number shared by all streams. Consumers merge by that pair, not input
+file order, so agent lifetime, map transitions, dialogue, item, and service
+relations retain their observed order.
 
-```text
-$HOME/.local/share/Steam/steamapps/common/Guild Wars/captures/<session_id>/
-```
+A session is usable only when:
 
-`reforged_capture.jsonl` must report the installed hooks. For the current client,
-a successful startup includes:
+- every consumed packet family has a recorded schema whose descriptors agree
+  with its expected size;
+- its client-build metadata is internally consistent;
+- sequence numbers are unique and gap-free across the supplied streams; and
+- lock drops, capacity evictions, and write failures are all zero.
 
-```text
-hook_installed_text_decoder
-hook_installed_stoc_handler_table
-quest_info_request_ready
-world_hooks_installed
-vendor_hooks_installed
-```
+Do not mix health or hook metadata into domain streams, and do not treat an
+absent health record as zero loss. Reject incomplete or unhealthy evidence
+instead of emitting partial semantic claims.
 
-The same file periodically records `capture_health`. Nonzero drop or write
-failure counters invalidate completeness claims for that session. Resource
-records are written to the other session JSONL files only when the relevant
-client events occur.
+## 5. Startup verification
 
-## 5. Verified environment
+Before relying on a session, verify that the sidecar records successful
+installation of every hook group used by the extraction. A complete
+quest/NPC/vendor observer normally needs the text decoder, packet-handler,
+quest-info request, world-packet, and vendor-hook groups.
 
-The copy-based path was validated on 2026-07-22 with Steam app `29720`, its
-existing Guild Wars prefix, and `cachyos-11.0-20260602-slr`. Session
-`1784745070077` loaded the DLL from the game directory, installed all five hook
-groups listed above, and reported zero capture-health failures.
+Then verify the emitted data rather than hook installation alone:
 
-The validation client was started manually through Proton rather than through
-Steam and became unresponsive. A second manual launch became unresponsive
-before any injection and created no capture session. These observations verify
-the relative DLL path and hook startup, but they neither demonstrate that
-injection caused the freeze nor validate manual out-of-Steam launching. Use the
-Steam launch option above for normal capture sessions.
+1. each required packet family occurs with its declared size;
+2. agent despawns and map-load contexts are present when their joins are used;
+3. active quests observed before injection receive one normal quest-description
+   response through the official quest-info request; and
+4. capture-health counters remain zero through the session.
 
-The Steam argument rewrite was confirmed from the local
-`steamarbitrarycommand.sh`; the batch sequence follows the existing working
-GWToolbox launcher. Detailed runtime evidence is recorded in the
-[investigation journal](../GWDAT_INVESTIGATION_JOURNAL.md).
-
-Proton's official debugging guide documents `%command%` substitution and
-running alternate Windows programs in a Steam compatibility environment:
-[DEBUGGING-LINUX.md](https://github.com/ValveSoftware/Proton/blob/proton_11.0/docs/DEBUGGING-LINUX.md).
+Launching Guild Wars manually outside Steam's usual path is not a valid
+responsiveness test. A freeze observed before injection does not establish that
+injection caused it; use the normal Steam launch environment to test behavior.

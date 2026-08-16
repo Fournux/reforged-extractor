@@ -29,7 +29,7 @@ specified in [ITEM_EXTRACTION.md](ITEM_EXTRACTION.md).
 The validated source split is:
 
 | Data | Source |
-|---|---|
+| --- | --- |
 | NPC model/file relation, skin, visual adjustment, appearance, flags, profession, level | `NPC_UPDATE_PROPERTIES` runtime packet |
 | NPC model composites | `NPC_UPDATE_MODEL` runtime packet, when observed |
 | Agent lifetime, position, and NPC-model relation | spawn/despawn runtime packets |
@@ -52,7 +52,7 @@ relations must not be replaced with guessed archive joins.
 Several identifiers must remain distinct:
 
 | Identifier | Scope and meaning |
-|---|---|
+| --- | --- |
 | `agent_id` | Transient identity for one live agent. It is valid only within its session and lifetime. |
 | `npc_model_id` | Reusable NPC archetype/model identity. Different displayed NPCs and services can share it. |
 | `model_file_id` | DAT resource key supplied by the NPC definition. |
@@ -73,7 +73,7 @@ The confirmed packet sizes include the four-byte header. All fields below are
 little-endian, and offsets are relative to the packet start.
 
 | Header | Bytes | Relevant fields |
-|---:|---:|---|
+| ---: | ---: | --- |
 | `0x0020 AGENT_SPAWNED` | `0x74` | `agent_id` at `+0x04`; composite agent type at `+0x08`; `x` / `y` as `f32` at `+0x14` / `+0x18` |
 | `0x0021 AGENT_DESPAWNED` | `0x08` | `agent_id` at `+0x04` |
 | `0x0056 NPC_UPDATE_PROPERTIES` | `0x34` | NPC definition described below |
@@ -94,7 +94,7 @@ npc_model_id = agent_type & 0x0fffffff
 ### `NPC_UPDATE_PROPERTIES`
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x04` | `u32` | NPC model ID |
 | `0x08` | `u32` | Model file ID |
 | `0x0c` | `u32` | Skin file ID |
@@ -112,7 +112,7 @@ dword in addition to any decoded view.
 ### `NPC_UPDATE_MODEL`
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x04` | `u32` | NPC model ID |
 | `0x08` | `u32` | Number of model-file IDs, at most eight in the confirmed form |
 | `0x0c` | `u32[count]` | Model-file IDs |
@@ -172,7 +172,7 @@ the active spawn relation to obtain the service-instance key. The service code
 inside the client constructor is authoritative:
 
 | Service code | Meaning |
-|---:|---|
+| ---: | --- |
 | `1` | Merchant purchase list |
 | `2` | Collector exchange |
 | `3` | Crafter product list |
@@ -190,7 +190,7 @@ rediscovered and validated after client updates.
 The collector create parameter contains:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u32` | Service code; must be `2` |
 | `0x14` | `u32` | Reward count |
 | `0x18` | pointer | Reward runtime item-ID array |
@@ -210,7 +210,7 @@ fields for every reward. A trophy runtime item ID is not a stable catalog key.
 Services `1` and `3` use the same create-parameter list shape:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u32` | Service code |
 | `0x14` | `u32` | Entry count |
 | `0x18` | pointer | Array of runtime item IDs, stride four bytes |
@@ -225,7 +225,7 @@ a partial list is not a complete vendor inventory.
 Service `10` uses:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u32` | Service code |
 | `0x10` | `u32` | Entry count |
 | `0x14` | pointer | Array of eight-byte entries |

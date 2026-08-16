@@ -1,13 +1,16 @@
-# Guild Wars DAT / Snapshot Container Format
+# Guild Wars Archive Container Format
 
-`Gw.dat` and `Gw.snapshot` use the same little-endian archive container. Resources are addressed through a Master File Table (MFT) and a file-number hash table. Archive decoding ends at the decompressed MFT payload; the payload's own format is a separate layer.
+`Gw.dat` and `Gw.snapshot` use the same little-endian archive container.
+Resources are addressed through a Master File Table (MFT) and a file-number hash
+table. Archive decoding ends at the decompressed MFT payload; the payload's own
+format is a separate layer.
 
 ## 1. Root header
 
 The archive begins with a 32-byte header.
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | 4 bytes | Magic `33 41 4e 1a` (`3AN\x1a`). |
 | `0x04` | `u32` | Header size: `32`. |
 | `0x08` | `u32` | Sector size: `512`. |
@@ -25,7 +28,7 @@ The MFT region consists of 24-byte rows. Row `0` is the MFT header. The remainin
 ### MFT header
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | 4 bytes | Magic `4d 66 74 1a` (`Mft\x1a`). |
 | `0x04` | `u32` | Opaque value. |
 | `0x08` | `u32` | Opaque value. |
@@ -42,7 +45,7 @@ entry_count * 24 <= mft_size
 ### MFT entry
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u64` | Absolute payload offset. |
 | `0x08` | `u32` | Stored payload size. |
 | `0x0c` | `u16` | DAT compression code. |
@@ -54,7 +57,7 @@ entry_count * 24 <= mft_size
 An entry with `size == 0` or `content == 0` has no payload for a normal resource read. The defined DAT compression codes are:
 
 | Code | Stored payload |
-|---:|---|
+| ---: | --- |
 | `0` | Uncompressed. |
 | `8` | Guild Wars DAT-compressed; see [DAT decompression](DECOMPRESSION.md). |
 
@@ -121,12 +124,12 @@ payload signatures or structures, rather than the MFT `content_type`, select
 the next parser:
 
 | Signature or shape | Resource family |
-|---|---|
+| --- | --- |
 | `MZ` | PE32 client executable image containing static client tables. |
 | `;===`, `;***`, or the record stream described below | Localized text resource. |
 | `ffna` | ArenaNet model, map, or multi-part resource container. |
 | `ATEX` / `ATTX` | Guild Wars texture wrapper. |
-| `DDS ` | DirectDraw Surface texture. |
+| `DDS` | DirectDraw Surface texture. |
 | `AMAT` | Material resource. |
 | `AMP`, `ID3`, MPEG frame sync `ff fa` / `ff fb` | Audio resource. |
 
@@ -145,9 +148,16 @@ The resulting value is resolved through the file-number hash table, including th
 
 ## 7. Text records
 
-A text resource contains a sequential record stream, which can begin after a binary prefix. Every record begins with a six-byte header, and its `size` includes that header. All multi-byte values are little-endian.
+A text resource contains a sequential record stream, which can begin after a
+binary prefix and at any byte alignment. Every record begins with a six-byte
+header, and its `size` includes that header. All multi-byte values are
+little-endian.
 
-The record index is the zero-based position in the stream. It advances for every record, including records that do not contain text. Text lookup keys use this record index rather than a text-only ordinal.
+Locate text through these bounded records, not by scanning for UTF-16LE runs or
+terminators: binary prefixes and record trailers can contain printable words
+that are not text. The record index is the zero-based position in the stream.
+It advances for every record, including records that do not contain text.
+Text lookup keys use this record index rather than a text-only ordinal.
 
 A global string id selects a language-array slot and a record within the selected text resource:
 
@@ -161,10 +171,9 @@ The language array supplies the archive file number for `file_index`.
 The client PE stores 11 consecutive language rows of 99 pointers. Each pointer
 addresses one encoded file reference. The table VA is build-specific:
 `0x00bef1b8` in the preserved client and `0x00bf0210` in the 2026-07-26
-client. The extractor locates it structurally as the unique run of
-`11 * 99` backed pointers whose referenced words contain canonical file
-references (`id0 >= 0x0100` and `id1 >= 0x0100`), rather than retaining either
-absolute address.
+client. Locate it structurally as the unique run of `11 * 99` backed pointers
+whose referenced words contain canonical file references (`id0 >= 0x0100` and
+`id1 >= 0x0100`), rather than retaining either absolute address.
 
 ### Plain UTF-16LE record
 
@@ -177,7 +186,7 @@ type = 0x10, subtype = 0, flags = 0
 Its layout is:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u16` | Record size, including the six-byte header. |
 | `0x02` | `u16` | Flags: `0`. |
 | `0x04` | `u8` | Type: `0x10`. |
@@ -191,7 +200,7 @@ Text markup remains part of the decoded UTF-16 text.
 Compact decoding reinterprets the same six-byte prefix:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | `u16` | Record size, including the six-byte header. |
 | `0x02` | `u16` | Base UTF-16 code unit. |
 | `0x04` | `u8` | Symbol width in bits, from `1` through `16`. |

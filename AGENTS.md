@@ -2,7 +2,7 @@
 
 ReforgedExtractor reverse-engineers the official Guild Wars client data pipeline to build a structured, reproducible game database from local first-party files.
 
-Technical findings about archive formats, decompression, resource indexing, and string resolution belong in [`GWDAT_INVESTIGATION_JOURNAL.md`](GWDAT_INVESTIGATION_JOURNAL.md) and [`doc/`](doc/README.md).
+Technical findings about archive formats, decompression, resource indexing, string resolution, and runtime evidence belong in the focused references under [`doc/`](doc/README.md).
 
 ## 1. Mission
 
@@ -75,5 +75,5 @@ to each other. Keep every selected ID distinct regardless of duplicate names.
 2. Trace the official client behavior needed to locate and decode those resources.
 3. Add the smallest possible runtime hook or packet capture only when primary-file analysis cannot answer the question.
 4. Implement the discovered behavior in the offline Rust extraction pipeline.
-5. Record new format and algorithm findings in the investigation journal and stable specifications in `doc/`.
+5. Record confirmed format and algorithm findings in the appropriate focused reference under `doc/`.
 6. Validate outputs with exact counts, invariants, representative resources, and client behavior where applicable.

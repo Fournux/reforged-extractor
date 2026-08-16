@@ -28,7 +28,7 @@ The skill id is the zero-based row index. Client lookup bounds-checks the id and
 addresses the row as `table_base + skill_id * 0xa4`.
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x08` | `u32` | Campaign or release-family code. |
 | `0x0c` | `u32` | Skill-type code. |
 | `0x10` | `u32` | Flags bitfield. |
@@ -64,7 +64,7 @@ addresses the row as `table_base + skill_id * 0xa4`.
 Confirmed flag bits at `0x10` are:
 
 | Mask | Meaning |
-|---:|---|
+| ---: | --- |
 | `0x00000001` | The overcast-cost byte at `0x34` is valid. |
 | `0x00000002` | Touch range. |
 | `0x00000004` | Elite. |
@@ -84,22 +84,22 @@ $$
 \text{strikes} = \left\lceil \frac{\text{units}}{25} \right\rceil
 $$
 
-For example, Gash/Entaille stores `140` units and displays `6` strikes. Skill
-output schema 3 serializes the displayed value as `costs.adrenaline` and
-preserves the table value as `costs.adrenaline_units`.
+For example, Gash/Entaille stores `140` units and displays `6` strikes. A
+lossless representation should retain both the displayed strike count and the
+original internal-unit value.
 
 ### 2.2 Attribute-scaled template values
 
-Skill output schema 3 retains the six raw endpoint values used by the three
+The six raw endpoint values below are sufficient to render the three confirmed
 description placeholders:
 
-| Placeholder | Rank-0 / rank-15 offsets | JSON endpoints |
-|---|---|---|
-| `%str1%` | `0x5c` / `0x60` | `scaling.scale_0` / `scaling.scale_15` |
-| `%str2%` | `0x64` / `0x68` | `scaling.bonus_scale_0` / `scaling.bonus_scale_15` |
-| `%str3%` | `0x44` / `0x48` | `timing.duration_0_attribute` / `timing.duration_15_attribute` |
+| Placeholder | Rank-0 / rank-15 offsets | Required values |
+| --- | --- | --- |
+| `%str1%` | `0x5c` / `0x60` | Scale at rank 0 and rank 15 |
+| `%str2%` | `0x64` / `0x68` | Bonus scale at rank 0 and rank 15 |
+| `%str3%` | `0x44` / `0x48` | Duration at rank 0 and rank 15 |
 
-The output does not serialize values for every attribute rank. Consumers
+There is no need to materialize values for every attribute rank. Consumers
 derive a value for effective attribute rank \(r\) with the official client
 formula:
 
@@ -134,8 +134,8 @@ The table is broader than the template corpus: it is also used for weapon
 modifiers and other non-player definitions. A nonzero name id or a recognized
 skill type therefore does not establish membership.
 
-The current catalog supports both non-PvP template IDs and current PvP/Codex
-variant IDs:
+The verified snapshot corpus contains both non-PvP template IDs and current
+PvP/Codex variant IDs:
 
 1. Select every row whose equip/use-family is `1` and whose PvP flag
    `0x00400000` is clear. This yields 1,333 IDs. Profession `0` is valid at
@@ -150,12 +150,22 @@ variant IDs:
 
 Rows `3418` through `3421` satisfy the family-`1` boundary but carry the
 client's not-playable flag `0x02000000`, profession `0`, and the localized
-name `...`. They remain distinct special rows; consumers can exclude them
-from player-facing choices through `flags.playable`.
+name `...`. They remain distinct special rows; a consumer can expose their
+playability separately from corpus membership.
 
 Title-track codes `5` and `6` are reported under Factions. Selection and
-serialization are keyed by the table ID, never by localized name: the output
-contains 1,488 unique IDs and retains separate rows when names coincide.
+serialization are keyed by the table ID, never by localized name: the verified
+snapshot corpus contains 1,488 unique IDs and retains separate rows when names
+coincide.
+
+### 4.1 Corpus version boundary
+
+The 2026-07-26 executable adds row `3442`: a non-elite Nightfall
+equip/use-family-`0` PvP variant reciprocally linked with base ID `1547`. It
+would raise an executable-only selection to 1,489 rows. The validated snapshot
+corpus predates that executable and has no client PE resource, so this reference
+retains the 1,488-row snapshot boundary until its input corpus is deliberately
+re-baselined.
 
 ## 5. Icons
 

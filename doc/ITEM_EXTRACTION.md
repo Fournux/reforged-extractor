@@ -11,7 +11,7 @@ defined in [DECOMPRESSION.md](DECOMPRESSION.md).
 Three identifiers have different roles:
 
 | Identifier | Meaning |
-|---|---|
+| --- | --- |
 | `item_id` | Runtime identity of one item instance. It can be reused and is not a stable item definition or DAT resource key. |
 | `model_id` | Gameplay identity supplied for the runtime item. It is not a DAT file number. |
 | `model_file_id` | DAT resource key for the item's visual resource. It is the low 31 bits of the packet's raw model-file field. |
@@ -21,7 +21,7 @@ The decoded server-to-client messages `0x0161` (item general information) and
 layout:
 
 | Offset | Decoded field |
-|---:|---|
+| ---: | --- |
 | `+0x04` | `item_id` |
 | `+0x08` | raw model-file field; `model_file_id = raw & 0x7fffffff` |
 | `+0x0c` | item type |

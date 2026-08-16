@@ -7,7 +7,7 @@ This document defines DAT-layer compression and the ATEX, ATTX, and DDS texture 
 The MFT entry's `compression` field determines the first payload-decoding stage.
 
 | Code | Meaning |
-|---:|---|
+| ---: | --- |
 | `0` | The stored bytes are the resource payload. |
 | `8` | The stored bytes use the Guild Wars DAT compression format. |
 
@@ -38,7 +38,7 @@ Code-length runs must cover the declared symbol count without overrunning it. Ca
 ATEX and ATTX wrap DXT/BC block data. Their encoded image range is word-oriented and begins with:
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x00` | 4 bytes | Container magic `ATEX` or `ATTX`. |
 | `0x04` | 4 bytes | Texture FourCC. |
 | `0x08` | `u16` | Width. |
@@ -56,7 +56,7 @@ Width and height are nonzero. The encoded data range ends at:
 The supported FourCC families and their final block decoders are:
 
 | ATEX FourCC | Block decoder | Bytes per 4x4 block |
-|---|---|---:|
+| --- | --- | ---: |
 | `DXT1` | DXT1 / BC1 | 8 |
 | `DXT2`, `DXT3`, `DXTN` | DXT3 / BC2 | 16 |
 | `DXT4`, `DXT5`, `DXTL` | DXT5 / BC3 | 16 |
@@ -83,7 +83,7 @@ A subcode bitfield of `0` means that no subcode fills blocks. The remaining payl
 The field at `0x10` is a bitfield:
 
 | Bit | Format family | Effect |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x1` | `DXT1` | Subcode 2 fills constant DXT1 blocks. |
 | `0x2` | `DXT2`, `DXT3`, `DXTN` | Subcode 3 fills DXT3-family alpha blocks. |
 | `0x4` | `DXT4`, `DXT5`, `DXTA`, `DXTL` | Subcode 4 fills DXT5-family alpha blocks. |
@@ -94,13 +94,13 @@ The subcodes mark the block components they fill. Planar tail words fill the unm
 
 ## 6. DDS
 
-A direct DDS payload begins with `DDS ` and uses the standard 124-byte DDS header. Pixel data begins at offset `128`.
+A direct DDS payload begins with `DDS` and uses the standard 124-byte DDS header. Pixel data begins at offset `128`.
 
 The required header fields are:
 
 | Offset | Type | Meaning |
-|---:|---|---|
-| `0x00` | 4 bytes | Magic `DDS `. |
+| ---: | --- | --- |
+| `0x00` | 4 bytes | Magic `DDS`. |
 | `0x04` | `u32` | Header size: `124`. |
 | `0x0c` | `u32` | Height; nonzero. |
 | `0x10` | `u32` | Width; nonzero. |

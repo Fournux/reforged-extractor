@@ -29,7 +29,7 @@ resolution are specified in
 The confirmed source split is:
 
 | Data | Source |
-|---|---|
+| --- | --- |
 | Quest ID and current quest-log state | Runtime quest packets |
 | Location/category, quest name, named NPC, description, and objective EncStrings | Runtime quest packets |
 | Objective ordering and observed variants | Runtime objective packets |
@@ -51,7 +51,7 @@ The confirmed packet sizes include the four-byte header. Integer fields and
 UTF-16 words are little-endian; offsets are relative to the packet start.
 
 | Header | Bytes | Relevant content |
-|---:|---:|---|
+| ---: | ---: | --- |
 | `0x0049 QUEST_ADD` | `0x50` | Quest ID, marker/state fields, three eight-word EncStrings, origin map |
 | `0x004c QUEST_DESCRIPTION` | `0x208` | Quest ID, 128-word description EncString, 128-word objectives EncString |
 | `0x0050 QUEST_GENERAL_INFO` | `0x40` | Quest ID, state, three eight-word EncStrings, origin map |
@@ -67,7 +67,7 @@ candidates rather than accepted as new quests.
 ### `QUEST_ADD`
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x04` | `u32` | Quest ID |
 | `0x1c` | `u16[8]` | Location/category EncString |
 | `0x2c` | `u16[8]` | Quest-name EncString |
@@ -77,7 +77,7 @@ candidates rather than accepted as new quests.
 ### `QUEST_DESCRIPTION`
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x04` | `u32` | Quest ID |
 | `0x08` | `u16[128]` | Description and reward EncString |
 | `0x108` | `u16[128]` | Objectives EncString |
@@ -85,7 +85,7 @@ candidates rather than accepted as new quests.
 ### `QUEST_GENERAL_INFO`
 
 | Offset | Type | Meaning |
-|---:|---|---|
+| ---: | --- | --- |
 | `0x04` | `u32` | Quest ID |
 | `0x0c` | `u16[8]` | Location/category EncString |
 | `0x1c` | `u16[8]` | Quest-name EncString |
@@ -185,7 +185,7 @@ additional objective-state semantics may exist.
 Dialogue attribution uses these additional packets:
 
 | Header | Bytes | Relevant fields |
-|---:|---:|---|
+| ---: | ---: | --- |
 | `0x0020 AGENT_SPAWNED` | `0x74` | Agent ID, NPC model composite, position |
 | `0x0021 AGENT_DESPAWNED` | `0x08` | Agent ID |
 | `0x0056 NPC_UPDATE_PROPERTIES` | `0x34` | NPC model ID and model-level name EncString |
@@ -204,7 +204,7 @@ dialog_type = dialog_id & 0x0000000f
 Confirmed low-nibble actions are:
 
 | Value | Action | Catalog role |
-|---:|---|---|
+| ---: | --- | --- |
 | `1` | Take | Giver |
 | `2` | Decline | No positive role relation |
 | `3` | Enquire | Giver |
@@ -224,7 +224,7 @@ Reward components are embedded in description segments separated by `0x0002`.
 The first text reference identifies the reward kind:
 
 | Text ID | Meaning | Value source |
-|---:|---|---|
+| ---: | --- | --- |
 | `10728` | Reward section wrapper | Structural only |
 | `10730` | Experience | Encoded integer following tag `0x0101` |
 | `10732` | Gold | Encoded integer following tag `0x0101` |

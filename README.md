@@ -64,13 +64,13 @@ output/
 
 ## Documentation
 
+- [Data Extraction Reference](doc/README.md)
 - [DAT Format Specification](doc/GWDAT_FORMAT.md)
 - [ATEX & Decompression](doc/DECOMPRESSION.md)
 - [Skill Extraction](doc/SKILL_EXTRACTION.md)
 - [Item Extraction](doc/ITEM_EXTRACTION.md)
 - [NPC & Vendor Extraction](doc/NPC_AND_VENDOR_EXTRACTION.md)
 - [Quest Extraction](doc/QUEST_EXTRACTION.md)
-- [Investigation Journal](GWDAT_INVESTIGATION_JOURNAL.md)
 
 ## Legal
 
