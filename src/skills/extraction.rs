@@ -1,11 +1,12 @@
 use super::{
-    ExtractedSkill, OutputCampaignStats, OutputCounts, OutputManifest, SKILL_FLAG_NOT_PLAYABLE,
-    SKILL_FLAG_PVE, SKILL_FLAG_PVP, SKILL_OUTPUT_SCHEMA_VERSION, SkillCosts, SkillFlags,
-    SkillScaling, SkillTiming, adrenaline_strikes, attribute_name, campaign_name,
-    decoded_energy_cost,
+    EXPECTED_SKILL_DISTRIBUTION, ExtractedSkill, OutputCampaignStats, OutputCounts, OutputManifest,
+    SKILL_FLAG_ELITE, SKILL_FLAG_HALF_RANGE, SKILL_FLAG_NON_STACKING, SKILL_FLAG_NOT_PLAYABLE,
+    SKILL_FLAG_PVE, SKILL_FLAG_PVP, SKILL_FLAG_STACKING, SKILL_FLAG_TOUCH_RANGE,
+    SKILL_OUTPUT_SCHEMA_VERSION, SkillCosts, SkillFlags, SkillScaling, SkillTiming,
+    adrenaline_strikes, attribute_name, campaign_name, decoded_energy_cost,
     icons::export_skill_icon,
     overcast_cost, profession_name, skill_type_name,
-    table::{SKILL_RECORD_SIZE, SkillTable, locate_skill_table},
+    table::{SkillTable, locate_skill_table},
     validate_skill_distribution,
 };
 
@@ -24,6 +25,8 @@ use crate::{
 };
 
 const UNVALIDATED_SKILL_ID: usize = 3442;
+const PVP_VARIANT_EQUIP_USE_FAMILY: u8 = 0;
+const BASE_SKILL_EQUIP_USE_FAMILY: u8 = 1;
 
 fn select_skill_indices(skill_table: &SkillTable<'_>) -> anyhow::Result<BTreeSet<usize>> {
     let mut selected_indices = BTreeSet::new();
@@ -38,13 +41,14 @@ fn select_skill_indices(skill_table: &SkillTable<'_>) -> anyhow::Result<BTreeSet
         }
 
         let flags = row.flags();
-        let standard = flags & SKILL_FLAG_PVP == 0 && row.equip_type_code() == 1;
+        let standard =
+            flags & SKILL_FLAG_PVP == 0 && row.equip_type_code() == BASE_SKILL_EQUIP_USE_FAMILY;
         let base_index = row.linked_skill_index();
         let current_pvp_variant = flags & SKILL_FLAG_PVP != 0
-            && row.equip_type_code() == 0
+            && row.equip_type_code() == PVP_VARIANT_EQUIP_USE_FAMILY
             && skill_table.row(base_index).is_some_and(|base_row| {
                 base_row.flags() & SKILL_FLAG_PVP == 0
-                    && base_row.equip_type_code() == 1
+                    && base_row.equip_type_code() == BASE_SKILL_EQUIP_USE_FAMILY
                     && base_row.linked_skill_index() == index
             });
         if standard || current_pvp_variant {
@@ -61,37 +65,12 @@ pub(crate) fn extract_skills_to_model_file_dirs(
     model_file_dir: &Path,
     model_file_hd_dir: &Path,
 ) -> anyhow::Result<()> {
-    extract_skills_with_icon_dirs(
-        gw_dat_path,
-        out_path,
-        model_file_dir,
-        Some(model_file_hd_dir),
-    )
-}
-
-fn extract_skills_with_icon_dirs(
-    gw_dat_path: &Path,
-    out_path: &Path,
-    images_dir: &Path,
-    images_hd_dir: Option<&Path>,
-) -> anyhow::Result<()> {
     let mut archive = DatArchive::open(gw_dat_path)?;
     let pe_data = archive.client_pe_data()?;
     let pe = PeImage::parse(&pe_data)?;
 
     // Extract skill metadata records from the PE skill table
     let skill_table = locate_skill_table(&pe_data, &pe)?;
-    let skill_table_offset = skill_table.file_offset;
-    let skill_table_len = skill_table
-        .record_count
-        .checked_mul(SKILL_RECORD_SIZE)
-        .context("skill table byte length overflow")?;
-    let skill_table_end = skill_table_offset
-        .checked_add(skill_table_len)
-        .context("skill table end offset overflow")?;
-    let skill_table_bytes = pe_data
-        .get(skill_table_offset..skill_table_end)
-        .context("skill table exceeds PE data")?;
 
     let compact_seeds = BTreeMap::new();
     let decoded_records = BTreeMap::new();
@@ -103,7 +82,6 @@ fn extract_skills_with_icon_dirs(
         &decoded_records,
     )?;
 
-    let skill_table = SkillTable::from_bytes(skill_table_bytes)?;
     let selected_indices = select_skill_indices(&skill_table)?;
 
     let mut extracted_skills = Vec::new();
@@ -144,11 +122,11 @@ fn extract_skills_with_icon_dirs(
         };
 
         let flags_val = row.flags();
-        let touch_range = (flags_val & 0x2) != 0;
-        let elite = (flags_val & 0x4) != 0;
-        let half_range = (flags_val & 0x8) != 0;
-        let stacking = (flags_val & 0x10000) != 0;
-        let non_stacking = (flags_val & 0x20000) != 0;
+        let touch_range = (flags_val & SKILL_FLAG_TOUCH_RANGE) != 0;
+        let elite = (flags_val & SKILL_FLAG_ELITE) != 0;
+        let half_range = (flags_val & SKILL_FLAG_HALF_RANGE) != 0;
+        let stacking = (flags_val & SKILL_FLAG_STACKING) != 0;
+        let non_stacking = (flags_val & SKILL_FLAG_NON_STACKING) != 0;
         let pvp = (flags_val & SKILL_FLAG_PVP) != 0;
         let pve = (flags_val & SKILL_FLAG_PVE) != 0;
         let playable = (flags_val & SKILL_FLAG_NOT_PLAYABLE) == 0;
@@ -220,16 +198,10 @@ fn extract_skills_with_icon_dirs(
     }
 
     let mut campaigns_stats = BTreeMap::new();
-    for campaign in &[
-        "core",
-        "prophecies",
-        "factions",
-        "nightfall",
-        "eye_of_the_north",
-    ] {
+    for (campaign, _, _) in EXPECTED_SKILL_DISTRIBUTION {
         let (non_elite, elite) = extracted_skills
             .iter()
-            .filter(|s| &s.campaign == campaign)
+            .filter(|s| s.campaign.as_str() == campaign)
             .fold(
                 (0, 0),
                 |(ne, el), s| if s.elite { (ne, el + 1) } else { (ne + 1, el) },
@@ -246,29 +218,18 @@ fn extract_skills_with_icon_dirs(
     validate_skill_distribution(&campaigns_stats, extracted_skills.len())?;
 
     drop(text_reader);
-    fs::create_dir_all(images_dir).with_context(|| format!("creating {}", images_dir.display()))?;
-    if let Some(images_hd_dir) = images_hd_dir {
-        fs::create_dir_all(images_hd_dir)
-            .with_context(|| format!("creating {}", images_hd_dir.display()))?;
-    }
+    fs::create_dir_all(model_file_dir)
+        .with_context(|| format!("creating {}", model_file_dir.display()))?;
+    fs::create_dir_all(model_file_hd_dir)
+        .with_context(|| format!("creating {}", model_file_hd_dir.display()))?;
     for (index, icon_texture_hash, icon_hd_texture_hash) in icon_jobs {
-        let icon_path = images_dir.join(format!("{index}.png"));
-        if !export_skill_icon(&mut archive, icon_texture_hash, &icon_path)
-            .with_context(|| format!("exporting skill {index} icon"))?
-        {
-            bail!("skill {index} icon file id {icon_texture_hash} is missing from the DAT index");
-        }
-        if icon_hd_texture_hash != 0
-            && let Some(images_hd_dir) = images_hd_dir
-        {
-            let icon_path = images_hd_dir.join(format!("{index}.png"));
-            if !export_skill_icon(&mut archive, icon_hd_texture_hash, &icon_path)
-                .with_context(|| format!("exporting skill {index} HD icon"))?
-            {
-                bail!(
-                    "skill {index} HD icon file id {icon_hd_texture_hash} is missing from the DAT index"
-                );
-            }
+        let icon_path = model_file_dir.join(format!("{index}.png"));
+        export_skill_icon(&mut archive, icon_texture_hash, &icon_path)
+            .with_context(|| format!("exporting skill {index} icon"))?;
+        if icon_hd_texture_hash != 0 {
+            let icon_path = model_file_hd_dir.join(format!("{index}.png"));
+            export_skill_icon(&mut archive, icon_hd_texture_hash, &icon_path)
+                .with_context(|| format!("exporting skill {index} HD icon"))?;
         }
     }
 
@@ -285,6 +246,7 @@ fn extract_skills_with_icon_dirs(
 
 #[cfg(test)]
 mod tests {
+    use super::super::table::SKILL_RECORD_SIZE;
     use super::*;
 
     fn set_u32(row: &mut [u8], offset: usize, value: u32) {

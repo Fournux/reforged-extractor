@@ -8,6 +8,11 @@ use std::collections::BTreeMap;
 pub(crate) use extraction::extract_skills_to_model_file_dirs;
 
 const SKILL_FLAG_OVERCAST: u32 = 0x0000_0001;
+const SKILL_FLAG_TOUCH_RANGE: u32 = 0x0000_0002;
+const SKILL_FLAG_ELITE: u32 = 0x0000_0004;
+const SKILL_FLAG_HALF_RANGE: u32 = 0x0000_0008;
+const SKILL_FLAG_STACKING: u32 = 0x0001_0000;
+const SKILL_FLAG_NON_STACKING: u32 = 0x0002_0000;
 const SKILL_FLAG_PVE: u32 = 0x0008_0000;
 const SKILL_FLAG_PVP: u32 = 0x0040_0000;
 const SKILL_FLAG_NOT_PLAYABLE: u32 = 0x0200_0000;

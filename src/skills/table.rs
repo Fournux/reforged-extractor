@@ -4,6 +4,18 @@ use crate::pe::PeImage;
 
 pub(super) const SKILL_RECORD_SIZE: usize = 164;
 
+const SKILL_TABLE_RECORD_COUNT_OFFSET: usize = 0x2c;
+const SKILL_TABLE_SCAN_ALIGNMENT: usize = std::mem::size_of::<u32>();
+const MIN_SKILL_TABLE_RECORDS: usize = 512;
+const MAX_SKILL_TABLE_RECORDS: usize = 10_000;
+const MAX_PROBED_SKILL_ROWS: usize = 256;
+const MIN_LIVE_SKILL_ROWS: usize = 32;
+const NAME_DESCRIPTION_MATCH_SCORE: usize = 4;
+const MAX_PLAUSIBLE_CAMPAIGN_CODE: u32 = 4;
+const MAX_PLAUSIBLE_SKILL_TYPE_CODE: u32 = 29;
+const MAX_PLAUSIBLE_PROFESSION_CODE: u8 = 10;
+const MAX_PLAUSIBLE_EQUIP_TYPE_CODE: u8 = 3;
+
 pub(super) struct SkillTable<'a> {
     bytes: &'a [u8],
 }
@@ -176,106 +188,102 @@ impl SkillRow<'_> {
     }
 }
 
-pub(super) struct SkillTableDetection {
-    pub(super) file_offset: usize,
-    pub(super) record_count: usize,
+struct SkillTableDetection {
+    file_offset: usize,
+    record_count: usize,
     score: usize,
 }
 
 fn read_u32_at(data: &[u8], offset: usize) -> Option<u32> {
-    let bytes = data.get(offset..offset + 4)?;
+    let end = offset.checked_add(std::mem::size_of::<u32>())?;
+    let bytes = data.get(offset..end)?;
     Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 fn skill_table_probe_score(data: &[u8], offset: usize, record_count: usize) -> Option<usize> {
-    if offset + record_count.checked_mul(SKILL_RECORD_SIZE)? > data.len() {
-        return None;
-    }
-    if read_u32_at(data, offset)? != 0 {
-        return None;
-    }
-    let declared_count = read_u32_at(data, offset + 0x2c)? as usize;
-    if declared_count != record_count {
+    let table_len = record_count.checked_mul(SKILL_RECORD_SIZE)?;
+    let table_end = offset.checked_add(table_len)?;
+    let table = SkillTable::from_bytes(data.get(offset..table_end)?).ok()?;
+
+    let header = table.row(0)?;
+    if header.id() != 0 || header.linked_skill_index() != record_count {
         return None;
     }
 
-    let first_live = offset + SKILL_RECORD_SIZE;
-    if read_u32_at(data, first_live)? != 1 {
+    let first_live = table.row(1)?;
+    if first_live.id() != 1 {
         return None;
     }
-    let first_name = read_u32_at(data, first_live + 0x98)?;
-    let first_desc = read_u32_at(data, first_live + 0xa0)?;
-    if first_name == 0 || first_desc != first_name + 1 {
+    let first_name = first_live.name_string_id();
+    let first_desc = first_live.description_string_id();
+    if first_name == 0 || first_name.checked_add(1) != Some(first_desc) {
         return None;
     }
 
-    let probe_count = record_count.min(256);
     let mut score = 0_usize;
     let mut live_like = 0_usize;
-    for index in 1..probe_count {
-        let rec = offset + index * SKILL_RECORD_SIZE;
-        let name_id = read_u32_at(data, rec + 0x98)?;
-        let desc_id = read_u32_at(data, rec + 0xa0)?;
+    for row in table.rows().skip(1).take(MAX_PROBED_SKILL_ROWS - 1) {
+        let name_id = row.name_string_id();
         if name_id == 0 {
             continue;
         }
-        let campaign = read_u32_at(data, rec + 0x08)?;
-        let type_code = read_u32_at(data, rec + 0x0c)?;
-        let profession = *data.get(rec + 0x28)?;
-        let equip_type = *data.get(rec + 0x33)?;
-
-        if desc_id == name_id + 1 {
-            score += 4;
+        if name_id.checked_add(1) == Some(row.description_string_id()) {
+            score += NAME_DESCRIPTION_MATCH_SCORE;
             live_like += 1;
         }
-        if campaign <= 4 {
+        if row.campaign_code() <= MAX_PLAUSIBLE_CAMPAIGN_CODE {
             score += 1;
         }
-        if type_code <= 29 {
+        if row.type_code() <= MAX_PLAUSIBLE_SKILL_TYPE_CODE {
             score += 1;
         }
-        if profession <= 10 {
+        if row.profession_code() <= MAX_PLAUSIBLE_PROFESSION_CODE {
             score += 1;
         }
-        if equip_type <= 3 {
+        if row.equip_type_code() <= MAX_PLAUSIBLE_EQUIP_TYPE_CODE {
             score += 1;
         }
     }
 
-    if live_like < 32 {
+    if live_like < MIN_LIVE_SKILL_ROWS {
         return None;
     }
     Some(score)
 }
 
-pub(super) fn locate_skill_table(
-    pe_data: &[u8],
+pub(super) fn locate_skill_table<'a>(
+    pe_data: &'a [u8],
     pe: &PeImage,
-) -> anyhow::Result<SkillTableDetection> {
+) -> anyhow::Result<SkillTable<'a>> {
     let mut best: Option<SkillTableDetection> = None;
     for section in pe.sections() {
         let raw_start = section.raw_pointer as usize;
         let raw_end = raw_start
             .saturating_add(section.raw_size as usize)
             .min(pe_data.len());
-        if raw_end <= raw_start + SKILL_RECORD_SIZE * 2 {
+        let Some(minimum_table_end) = raw_start.checked_add(SKILL_RECORD_SIZE * 2) else {
+            continue;
+        };
+        if raw_end <= minimum_table_end {
             continue;
         }
+
         let mut offset = raw_start;
-        while offset + SKILL_RECORD_SIZE * 2 <= raw_end {
-            let Some(record_count) =
-                read_u32_at(pe_data, offset + 0x2c).map(|value| value as usize)
+        while offset
+            .checked_add(SKILL_RECORD_SIZE * 2)
+            .is_some_and(|minimum_end| minimum_end <= raw_end)
+        {
+            let Some(count_offset) = offset.checked_add(SKILL_TABLE_RECORD_COUNT_OFFSET) else {
+                break;
+            };
+            let Some(record_count) = read_u32_at(pe_data, count_offset).map(|value| value as usize)
             else {
                 break;
             };
-            let Some(table_end) = record_count
+            if let Some(table_end) = record_count
                 .checked_mul(SKILL_RECORD_SIZE)
                 .and_then(|len| offset.checked_add(len))
-            else {
-                offset += 4;
-                continue;
-            };
-            if (512..=10000).contains(&record_count)
+                && (MIN_SKILL_TABLE_RECORDS..=MAX_SKILL_TABLE_RECORDS).contains(&record_count)
                 && table_end <= raw_end
                 && let Some(score) = skill_table_probe_score(pe_data, offset, record_count)
             {
@@ -291,20 +299,71 @@ pub(super) fn locate_skill_table(
                     best = Some(candidate);
                 }
             }
-            offset += 4;
+
+            let Some(next_offset) = offset.checked_add(SKILL_TABLE_SCAN_ALIGNMENT) else {
+                break;
+            };
+            offset = next_offset;
         }
     }
 
-    best.with_context(|| "failed to locate s_skill table structurally in client PE")
+    let detection =
+        best.with_context(|| "failed to locate s_skill table structurally in client PE")?;
+    let table_len = detection
+        .record_count
+        .checked_mul(SKILL_RECORD_SIZE)
+        .context("skill table byte length overflow")?;
+    let table_end = detection
+        .file_offset
+        .checked_add(table_len)
+        .context("skill table end offset overflow")?;
+    let bytes = pe_data
+        .get(detection.file_offset..table_end)
+        .context("skill table exceeds PE data")?;
+    SkillTable::from_bytes(bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn set_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
     #[test]
     fn rejects_partial_skill_row() {
         let bytes = vec![0; SKILL_RECORD_SIZE + 1];
         assert!(SkillTable::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn scores_structural_candidate_without_wrapping_string_ids() {
+        let offset = SKILL_TABLE_SCAN_ALIGNMENT;
+        let record_count = MIN_SKILL_TABLE_RECORDS;
+        let mut data = vec![0; offset + record_count * SKILL_RECORD_SIZE];
+        let table = &mut data[offset..];
+        set_u32(table, SKILL_TABLE_RECORD_COUNT_OFFSET, record_count as u32);
+
+        for index in 1..=MIN_LIVE_SKILL_ROWS + 1 {
+            let row_start = index * SKILL_RECORD_SIZE;
+            let row = &mut table[row_start..row_start + SKILL_RECORD_SIZE];
+            set_u32(row, 0, index as u32);
+            let name_id = 1_000 + index as u32 * 2;
+            set_u32(row, 0x98, name_id);
+            set_u32(row, 0xa0, name_id + 1);
+        }
+
+        assert!(skill_table_probe_score(&data, offset, record_count).is_some());
+
+        let second_row = offset + SKILL_RECORD_SIZE * 2;
+        set_u32(&mut data, second_row + 0x98, u32::MAX);
+        set_u32(&mut data, second_row + 0xa0, 0);
+        assert!(skill_table_probe_score(&data, offset, record_count).is_some());
+
+        let first_row = offset + SKILL_RECORD_SIZE;
+        set_u32(&mut data, first_row + 0x98, u32::MAX);
+        set_u32(&mut data, first_row + 0xa0, 0);
+        assert!(skill_table_probe_score(&data, offset, record_count).is_none());
     }
 }
