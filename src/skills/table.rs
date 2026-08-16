@@ -1,8 +1,180 @@
-use anyhow::Context;
+use anyhow::{Context, bail};
 
 use crate::pe::PeImage;
 
 pub(super) const SKILL_RECORD_SIZE: usize = 164;
+
+pub(super) struct SkillTable<'a> {
+    bytes: &'a [u8],
+}
+
+pub(super) struct SkillRow<'a> {
+    index: usize,
+    bytes: &'a [u8],
+}
+
+impl<'a> SkillTable<'a> {
+    pub(super) fn from_bytes(bytes: &'a [u8]) -> anyhow::Result<Self> {
+        if !bytes.len().is_multiple_of(SKILL_RECORD_SIZE) {
+            bail!("skill table length is not a multiple of {SKILL_RECORD_SIZE}");
+        }
+        Ok(Self { bytes })
+    }
+
+    pub(super) fn row(&self, index: usize) -> Option<SkillRow<'a>> {
+        let start = index.checked_mul(SKILL_RECORD_SIZE)?;
+        let end = start.checked_add(SKILL_RECORD_SIZE)?;
+        self.bytes
+            .get(start..end)
+            .map(|bytes| SkillRow { index, bytes })
+    }
+
+    pub(super) fn rows(&self) -> impl Iterator<Item = SkillRow<'a>> + 'a {
+        self.bytes
+            .chunks_exact(SKILL_RECORD_SIZE)
+            .enumerate()
+            .map(|(index, bytes)| SkillRow { index, bytes })
+    }
+}
+
+impl SkillRow<'_> {
+    fn u16_at(&self, offset: usize) -> u16 {
+        u16::from_le_bytes([self.bytes[offset], self.bytes[offset + 1]])
+    }
+
+    fn u32_at(&self, offset: usize) -> u32 {
+        u32::from_le_bytes([
+            self.bytes[offset],
+            self.bytes[offset + 1],
+            self.bytes[offset + 2],
+            self.bytes[offset + 3],
+        ])
+    }
+
+    fn f32_at(&self, offset: usize) -> f32 {
+        f32::from_bits(self.u32_at(offset))
+    }
+
+    pub(super) fn index(&self) -> usize {
+        self.index
+    }
+
+    pub(super) fn id(&self) -> u32 {
+        self.u32_at(0x00)
+    }
+
+    pub(super) fn campaign_code(&self) -> u32 {
+        self.u32_at(0x08)
+    }
+
+    pub(super) fn type_code(&self) -> u32 {
+        self.u32_at(0x0c)
+    }
+
+    pub(super) fn flags(&self) -> u32 {
+        self.u32_at(0x10)
+    }
+
+    pub(super) fn profession_code(&self) -> u8 {
+        self.bytes[0x28]
+    }
+
+    pub(super) fn attribute_code(&self) -> u8 {
+        self.bytes[0x29]
+    }
+
+    pub(super) fn title_track_code(&self) -> u16 {
+        self.u16_at(0x2a)
+    }
+
+    pub(super) fn linked_skill_index(&self) -> usize {
+        self.u32_at(0x2c) as usize
+    }
+
+    pub(super) fn target_code(&self) -> u8 {
+        self.bytes[0x31]
+    }
+
+    pub(super) fn equip_type_code(&self) -> u8 {
+        self.bytes[0x33]
+    }
+
+    pub(super) fn overcast_cost_raw(&self) -> u8 {
+        self.bytes[0x34]
+    }
+
+    pub(super) fn energy_cost_encoded(&self) -> u8 {
+        self.bytes[0x35]
+    }
+
+    pub(super) fn health_cost(&self) -> u8 {
+        self.bytes[0x36]
+    }
+
+    pub(super) fn adrenaline_units(&self) -> u32 {
+        self.u32_at(0x38)
+    }
+
+    pub(super) fn activation_seconds(&self) -> f32 {
+        self.f32_at(0x3c)
+    }
+
+    pub(super) fn aftercast_seconds(&self) -> f32 {
+        self.f32_at(0x40)
+    }
+
+    pub(super) fn duration_0_attribute(&self) -> u32 {
+        self.u32_at(0x44)
+    }
+
+    pub(super) fn duration_15_attribute(&self) -> u32 {
+        self.u32_at(0x48)
+    }
+
+    pub(super) fn recharge_seconds(&self) -> u32 {
+        self.u32_at(0x4c)
+    }
+
+    pub(super) fn scale_0(&self) -> u32 {
+        self.u32_at(0x5c)
+    }
+
+    pub(super) fn scale_15(&self) -> u32 {
+        self.u32_at(0x60)
+    }
+
+    pub(super) fn bonus_scale_0(&self) -> u32 {
+        self.u32_at(0x64)
+    }
+
+    pub(super) fn bonus_scale_15(&self) -> u32 {
+        self.u32_at(0x68)
+    }
+
+    pub(super) fn aoe_range(&self) -> f32 {
+        self.f32_at(0x6c)
+    }
+
+    pub(super) fn constant_effect(&self) -> f32 {
+        self.f32_at(0x70)
+    }
+
+    pub(super) fn icon_texture_hash(&self) -> u32 {
+        self.u32_at(0x8c)
+    }
+
+    pub(super) fn icon_hd_texture_hash(&self) -> u32 {
+        self.u32_at(0x90)
+    }
+
+    pub(super) fn name_string_id(&self) -> u32 {
+        self.u32_at(0x98)
+    }
+
+    pub(super) fn description_string_id(&self) -> u32 {
+        self.u32_at(0xa0)
+    }
+}
 
 pub(super) struct SkillTableDetection {
     pub(super) file_offset: usize,
@@ -124,4 +296,15 @@ pub(super) fn locate_skill_table(
     }
 
     best.with_context(|| "failed to locate s_skill table structurally in client PE")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_partial_skill_row() {
+        let bytes = vec![0; SKILL_RECORD_SIZE + 1];
+        assert!(SkillTable::from_bytes(&bytes).is_err());
+    }
 }

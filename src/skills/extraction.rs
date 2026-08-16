@@ -5,7 +5,7 @@ use super::{
     decoded_energy_cost,
     icons::export_skill_icon,
     overcast_cost, profession_name, skill_type_name,
-    table::{SKILL_RECORD_SIZE, locate_skill_table},
+    table::{SKILL_RECORD_SIZE, SkillTable, locate_skill_table},
     validate_skill_distribution,
 };
 
@@ -25,32 +25,11 @@ use crate::{
 
 const UNVALIDATED_SKILL_ID: usize = 3442;
 
-fn skill_row(skill_table_bytes: &[u8], index: usize) -> Option<&[u8]> {
-    let start = index.checked_mul(SKILL_RECORD_SIZE)?;
-    let end = start.checked_add(SKILL_RECORD_SIZE)?;
-    skill_table_bytes.get(start..end)
-}
-
-fn skill_u32(row_bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([
-        row_bytes[offset],
-        row_bytes[offset + 1],
-        row_bytes[offset + 2],
-        row_bytes[offset + 3],
-    ])
-}
-
-fn select_skill_indices(skill_table_bytes: &[u8]) -> anyhow::Result<BTreeSet<usize>> {
-    if !skill_table_bytes.len().is_multiple_of(SKILL_RECORD_SIZE) {
-        bail!("skill table length is not a multiple of {SKILL_RECORD_SIZE}");
-    }
-
+fn select_skill_indices(skill_table: &SkillTable<'_>) -> anyhow::Result<BTreeSet<usize>> {
     let mut selected_indices = BTreeSet::new();
-    for (index, row_bytes) in skill_table_bytes
-        .chunks_exact(SKILL_RECORD_SIZE)
-        .enumerate()
-    {
-        if skill_u32(row_bytes, 0) != index as u32 {
+    for row in skill_table.rows() {
+        let index = row.index();
+        if row.id() != index as u32 {
             bail!("skill table row {index} has a mismatched skill id");
         }
 
@@ -58,15 +37,15 @@ fn select_skill_indices(skill_table_bytes: &[u8]) -> anyhow::Result<BTreeSet<usi
             continue;
         }
 
-        let flags = skill_u32(row_bytes, 0x10);
-        let standard = flags & SKILL_FLAG_PVP == 0 && row_bytes[0x33] == 1;
-        let base_index = skill_u32(row_bytes, 0x2c) as usize;
+        let flags = row.flags();
+        let standard = flags & SKILL_FLAG_PVP == 0 && row.equip_type_code() == 1;
+        let base_index = row.linked_skill_index();
         let current_pvp_variant = flags & SKILL_FLAG_PVP != 0
-            && row_bytes[0x33] == 0
-            && skill_row(skill_table_bytes, base_index).is_some_and(|base_row| {
-                skill_u32(base_row, 0x10) & SKILL_FLAG_PVP == 0
-                    && base_row[0x33] == 1
-                    && skill_u32(base_row, 0x2c) as usize == index
+            && row.equip_type_code() == 0
+            && skill_table.row(base_index).is_some_and(|base_row| {
+                base_row.flags() & SKILL_FLAG_PVP == 0
+                    && base_row.equip_type_code() == 1
+                    && base_row.linked_skill_index() == index
             });
         if standard || current_pvp_variant {
             selected_indices.insert(index);
@@ -124,26 +103,18 @@ fn extract_skills_with_icon_dirs(
         &decoded_records,
     )?;
 
-    let selected_indices = select_skill_indices(skill_table_bytes)?;
+    let skill_table = SkillTable::from_bytes(skill_table_bytes)?;
+    let selected_indices = select_skill_indices(&skill_table)?;
 
     let mut extracted_skills = Vec::new();
     let mut icon_jobs = Vec::new();
 
     for index in selected_indices {
-        let row_bytes =
-            &skill_table_bytes[index * SKILL_RECORD_SIZE..(index + 1) * SKILL_RECORD_SIZE];
-        let name_string_id = u32::from_le_bytes([
-            row_bytes[0x98],
-            row_bytes[0x99],
-            row_bytes[0x9A],
-            row_bytes[0x9B],
-        ]);
-        let description_string_id = u32::from_le_bytes([
-            row_bytes[0xA0],
-            row_bytes[0xA1],
-            row_bytes[0xA2],
-            row_bytes[0xA3],
-        ]);
+        let row = skill_table
+            .row(index)
+            .with_context(|| format!("selected skill {index} row is missing"))?;
+        let name_string_id = row.name_string_id();
+        let description_string_id = row.description_string_id();
 
         let name = text_reader
             .text(name_string_id)?
@@ -162,32 +133,17 @@ fn extract_skills_with_icon_dirs(
             })
             .collect();
 
-        let icon_texture_hash = u32::from_le_bytes([
-            row_bytes[0x8C],
-            row_bytes[0x8D],
-            row_bytes[0x8E],
-            row_bytes[0x8F],
-        ]);
+        let icon_texture_hash = row.icon_texture_hash();
 
-        let campaign_code = u32::from_le_bytes([
-            row_bytes[0x08],
-            row_bytes[0x09],
-            row_bytes[0x0A],
-            row_bytes[0x0B],
-        ]);
+        let campaign_code = row.campaign_code();
         let campaign = campaign_name(campaign_code);
-        let title_track_code = u16::from_le_bytes([row_bytes[0x2A], row_bytes[0x2B]]);
+        let title_track_code = row.title_track_code();
         let effective_campaign = match title_track_code {
             5 | 6 => "factions",
             _ => campaign,
         };
 
-        let flags_val = u32::from_le_bytes([
-            row_bytes[0x10],
-            row_bytes[0x11],
-            row_bytes[0x12],
-            row_bytes[0x13],
-        ]);
+        let flags_val = row.flags();
         let touch_range = (flags_val & 0x2) != 0;
         let elite = (flags_val & 0x4) != 0;
         let half_range = (flags_val & 0x8) != 0;
@@ -197,71 +153,46 @@ fn extract_skills_with_icon_dirs(
         let pve = (flags_val & SKILL_FLAG_PVE) != 0;
         let playable = (flags_val & SKILL_FLAG_NOT_PLAYABLE) == 0;
 
-        let profession_code = row_bytes[0x28];
-        let type_code = u32::from_le_bytes([
-            row_bytes[0x0C],
-            row_bytes[0x0D],
-            row_bytes[0x0E],
-            row_bytes[0x0F],
-        ]);
-        let energy_cost_encoded = row_bytes[0x35];
-        let adrenaline_units = skill_u32(row_bytes, 0x38);
-        let skill_equip_type_code = row_bytes[0x33];
-        let duration_0_attribute = skill_u32(row_bytes, 0x44);
-        let duration_15_attribute = skill_u32(row_bytes, 0x48);
-        let scale_0 = skill_u32(row_bytes, 0x5c);
-        let scale_15 = skill_u32(row_bytes, 0x60);
-        let bonus_scale_0 = skill_u32(row_bytes, 0x64);
-        let bonus_scale_15 = skill_u32(row_bytes, 0x68);
+        let profession_code = row.profession_code();
+        let type_code = row.type_code();
+        let energy_cost_encoded = row.energy_cost_encoded();
+        let adrenaline_units = row.adrenaline_units();
+        let skill_equip_type_code = row.equip_type_code();
+        let duration_0_attribute = row.duration_0_attribute();
+        let duration_15_attribute = row.duration_15_attribute();
+        let scale_0 = row.scale_0();
+        let scale_15 = row.scale_15();
+        let bonus_scale_0 = row.bonus_scale_0();
+        let bonus_scale_15 = row.bonus_scale_15();
 
-        let icon_hd_texture_hash = u32::from_le_bytes([
-            row_bytes[0x90],
-            row_bytes[0x91],
-            row_bytes[0x92],
-            row_bytes[0x93],
-        ]);
+        let icon_hd_texture_hash = row.icon_hd_texture_hash();
 
         icon_jobs.push((index, icon_texture_hash, icon_hd_texture_hash));
 
         extracted_skills.push(ExtractedSkill {
-            id: index as u32,
+            id: row.id(),
             name,
             description,
             campaign: effective_campaign.to_string(),
             profession: profession_name(profession_code).to_string(),
             profession_code,
-            attribute_code: row_bytes[0x29],
-            attribute: attribute_name(row_bytes[0x29], profession_code).to_string(),
+            attribute_code: row.attribute_code(),
+            attribute: attribute_name(row.attribute_code(), profession_code).to_string(),
             skill_type: skill_type_name(type_code).to_string(),
             type_code,
             elite,
             costs: SkillCosts {
                 energy: decoded_energy_cost(energy_cost_encoded),
                 energy_encoded: energy_cost_encoded,
-                health: row_bytes[0x36],
+                health: row.health_cost(),
                 adrenaline: adrenaline_strikes(adrenaline_units),
                 adrenaline_units,
-                overcast: overcast_cost(flags_val, row_bytes[0x34]),
+                overcast: overcast_cost(flags_val, row.overcast_cost_raw()),
             },
             timing: SkillTiming {
-                activation_seconds: f32::from_le_bytes([
-                    row_bytes[0x3C],
-                    row_bytes[0x3D],
-                    row_bytes[0x3E],
-                    row_bytes[0x3F],
-                ]),
-                aftercast_seconds: f32::from_le_bytes([
-                    row_bytes[0x40],
-                    row_bytes[0x41],
-                    row_bytes[0x42],
-                    row_bytes[0x43],
-                ]),
-                recharge_seconds: u32::from_le_bytes([
-                    row_bytes[0x4C],
-                    row_bytes[0x4D],
-                    row_bytes[0x4E],
-                    row_bytes[0x4F],
-                ]),
+                activation_seconds: row.activation_seconds(),
+                aftercast_seconds: row.aftercast_seconds(),
+                recharge_seconds: row.recharge_seconds(),
                 duration_0_attribute,
                 duration_15_attribute,
             },
@@ -271,19 +202,9 @@ fn extract_skills_with_icon_dirs(
                 bonus_scale_0,
                 bonus_scale_15,
             },
-            target_code: row_bytes[0x31],
-            aoe_range: f32::from_le_bytes([
-                row_bytes[0x6C],
-                row_bytes[0x6D],
-                row_bytes[0x6E],
-                row_bytes[0x6F],
-            ]),
-            constant_effect: f32::from_le_bytes([
-                row_bytes[0x70],
-                row_bytes[0x71],
-                row_bytes[0x72],
-                row_bytes[0x73],
-            ]),
+            target_code: row.target_code(),
+            aoe_range: row.aoe_range(),
+            constant_effect: row.constant_effect(),
             skill_equip_type_code,
             flags: SkillFlags {
                 touch_range,
@@ -395,8 +316,9 @@ mod tests {
         set_u32(special, 0x10, SKILL_FLAG_NOT_PLAYABLE);
         special[0x33] = 1;
 
+        let skill_table = SkillTable::from_bytes(&table).unwrap();
         assert_eq!(
-            select_skill_indices(&table)
+            select_skill_indices(&skill_table)
                 .unwrap()
                 .into_iter()
                 .collect::<Vec<_>>(),
@@ -412,6 +334,7 @@ mod tests {
         }
         table[UNVALIDATED_SKILL_ID * SKILL_RECORD_SIZE + 0x33] = 1;
 
-        assert!(select_skill_indices(&table).unwrap().is_empty());
+        let skill_table = SkillTable::from_bytes(&table).unwrap();
+        assert!(select_skill_indices(&skill_table).unwrap().is_empty());
     }
 }
