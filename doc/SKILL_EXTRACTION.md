@@ -104,9 +104,9 @@ derive a value for effective attribute rank \(r\) with the official client
 formula:
 
 $$
-\operatorname{value}(r) =
+\text{value}(r) =
 \max\left(0,\ v_0 +
-\operatorname{round}\left(\frac{r(v_{15}-v_0)}{15}\right)\right)
+\text{round}\left(\frac{r(v_{15}-v_0)}{15}\right)\right)
 $$
 
 where `round` selects the nearest integer, with half values rounded away from
