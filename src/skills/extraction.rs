@@ -70,17 +70,12 @@ pub(crate) fn extract_skills_to_model_file_dirs(
     let pe = PeImage::parse(&pe_data)?;
 
     // Extract skill metadata records from the PE skill table
-    let skill_table = locate_skill_table(&pe_data, &pe)?;
+    let skill_table = locate_skill_table(&pe)?;
 
     let compact_seeds = BTreeMap::new();
     let decoded_records = BTreeMap::new();
-    let mut text_reader = LocalizedTextReader::new(
-        &mut archive,
-        &pe_data,
-        &pe,
-        &compact_seeds,
-        &decoded_records,
-    )?;
+    let mut text_reader =
+        LocalizedTextReader::new(&mut archive, &pe, &compact_seeds, &decoded_records)?;
 
     let selected_indices = select_skill_indices(&skill_table)?;
 

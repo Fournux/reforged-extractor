@@ -10,7 +10,7 @@ use std::{
 use crate::{
     dat::DatArchive,
     io_util::write_json,
-    pe::{PeImage, PeSection},
+    pe::PeImage,
     text::{
         apply_encoded_template,
         catalog::{LocalizedTextReader, resolve_localized_text_catalog_with_client},

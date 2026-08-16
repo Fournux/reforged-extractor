@@ -25,13 +25,11 @@ pub(crate) struct LocalizedTextReader<'a> {
 impl<'a> LocalizedTextReader<'a> {
     pub(crate) fn new(
         archive: &'a mut DatArchive,
-        pe_data: &[u8],
-        pe: &PeImage,
+        pe: &PeImage<'_>,
         compact_seeds: &'a BTreeMap<u32, u64>,
         decoded_records: &'a BTreeMap<Vec<u8>, String>,
     ) -> anyhow::Result<Self> {
         let language_file_id_table = pe.locate_language_file_id_table(
-            pe_data,
             CLIENT_TEXT_FILES_PER_LANGUAGE,
             CLIENT_LANGUAGE_CODES.len(),
         )?;
@@ -39,7 +37,6 @@ impl<'a> LocalizedTextReader<'a> {
             .iter()
             .map(|(language_index, code)| {
                 pe.language_file_ids(
-                    pe_data,
                     language_file_id_table,
                     CLIENT_TEXT_FILES_PER_LANGUAGE,
                     *language_index,
@@ -145,7 +142,6 @@ pub(crate) fn resolve_localized_text_catalog(
     let pe = PeImage::parse(&pe_data)?;
     resolve_localized_text_catalog_with_client(
         &mut archive,
-        &pe_data,
         &pe,
         text_ids,
         compact_seeds,
@@ -155,14 +151,12 @@ pub(crate) fn resolve_localized_text_catalog(
 
 pub(crate) fn resolve_localized_text_catalog_with_client(
     archive: &mut DatArchive,
-    pe_data: &[u8],
-    pe: &PeImage,
+    pe: &PeImage<'_>,
     text_ids: impl IntoIterator<Item = u32>,
     compact_seeds: &BTreeMap<u32, u64>,
     decoded_records: &BTreeMap<Vec<u8>, String>,
 ) -> anyhow::Result<LocalizedTextCatalog> {
-    let mut reader =
-        LocalizedTextReader::new(archive, pe_data, pe, compact_seeds, decoded_records)?;
+    let mut reader = LocalizedTextReader::new(archive, pe, compact_seeds, decoded_records)?;
     let mut by_text_id = BTreeMap::new();
     for text_id in text_ids {
         let localized = reader.text(text_id)?;

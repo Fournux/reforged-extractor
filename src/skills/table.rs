@@ -251,16 +251,13 @@ fn skill_table_probe_score(data: &[u8], offset: usize, record_count: usize) -> O
     Some(score)
 }
 
-pub(super) fn locate_skill_table<'a>(
-    pe_data: &'a [u8],
-    pe: &PeImage,
-) -> anyhow::Result<SkillTable<'a>> {
+pub(super) fn locate_skill_table<'data>(pe: &PeImage<'data>) -> anyhow::Result<SkillTable<'data>> {
+    let pe_data = pe.data();
     let mut best: Option<SkillTableDetection> = None;
     for section in pe.sections() {
-        let raw_start = section.raw_pointer as usize;
-        let raw_end = raw_start
-            .saturating_add(section.raw_size as usize)
-            .min(pe_data.len());
+        let raw_range = section.raw_range();
+        let raw_start = raw_range.start;
+        let raw_end = raw_range.end;
         let Some(minimum_table_end) = raw_start.checked_add(SKILL_RECORD_SIZE * 2) else {
             continue;
         };

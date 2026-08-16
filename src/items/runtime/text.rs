@@ -296,13 +296,11 @@ pub(super) fn calc_runtime_ordinal_base(file_id: u32) -> u32 {
 
 pub(super) fn build_item_name_catalog(
     archive: &mut DatArchive,
-    pe_data: &[u8],
-    pe: &PeImage,
+    pe: &PeImage<'_>,
 ) -> Result<BTreeMap<u32, BTreeMap<String, String>>> {
     let decoded_records = BTreeMap::new();
     let compact_seeds = BTreeMap::new();
-    let mut reader =
-        LocalizedTextReader::new(archive, pe_data, pe, &compact_seeds, &decoded_records)?;
+    let mut reader = LocalizedTextReader::new(archive, pe, &compact_seeds, &decoded_records)?;
     let mut localized_names_by_id = BTreeMap::new();
     let mut seen = BTreeSet::new();
 
@@ -688,12 +686,10 @@ pub(crate) fn runtime_item_text_lookup_with_compact_seeds(
     let mut archive = DatArchive::open(gw_dat_path)?;
     let pe_data = archive.client_pe_data()?;
     let pe = PeImage::parse(&pe_data)?;
-    let mut by_text_id = build_item_name_catalog(&mut archive, &pe_data, &pe)?;
-    let by_model_file_id =
-        scan_model_file_simple_name_links(&pe_data, pe.sections(), &by_text_id, &archive);
+    let mut by_text_id = build_item_name_catalog(&mut archive, &pe)?;
+    let by_model_file_id = scan_model_file_simple_name_links(&pe, &by_text_id, &archive);
     let requested = resolve_localized_text_catalog_with_client(
         &mut archive,
-        &pe_data,
         &pe,
         text_ids.iter().copied(),
         compact_seeds,
@@ -710,16 +706,21 @@ pub(crate) fn runtime_item_text_lookup_with_compact_seeds(
     })
 }
 pub(super) fn scan_model_file_simple_name_links(
-    pe_bytes: &[u8],
-    pe_sections: &[PeSection],
+    pe: &PeImage<'_>,
     localized_names_by_id: &BTreeMap<u32, BTreeMap<String, String>>,
     archive: &DatArchive,
 ) -> BTreeMap<u32, BTreeMap<String, String>> {
-    let Some(rdata) = pe_sections.iter().find(|section| section.name == ".rdata") else {
+    let pe_bytes = pe.data();
+    let Some(rdata) = pe
+        .sections()
+        .iter()
+        .find(|section| section.name == ".rdata")
+    else {
         return BTreeMap::new();
     };
-    let raw_start = rdata.raw_pointer as usize;
-    let raw_end = std::cmp::min(raw_start + rdata.raw_size as usize, pe_bytes.len());
+    let raw_range = rdata.raw_range();
+    let raw_start = raw_range.start;
+    let raw_end = raw_range.end;
 
     let mut candidate_starts = BTreeSet::new();
     let mut offset = raw_start;
