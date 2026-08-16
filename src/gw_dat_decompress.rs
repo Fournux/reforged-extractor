@@ -2,16 +2,23 @@ use anyhow::{Context, bail};
 
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 
-const TABLE_DATA1: [u8; 112] = [
-    0x00, 0x00, 0x00, 0xA0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x06, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x40, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x12, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x12, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x1F, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x07, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x39, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x60, 0x01, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x00, 0x4D, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0xC0, 0x00, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB0, 0x00, 0x57, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0xA0, 0x00, 0x5F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00,
+const CODE_LENGTH_LOOKUP: [(u32, u32); 14] = [
+    (0xA000_0000, 0x02),
+    (0x6000_0000, 0x06),
+    (0x4000_0000, 0x0A),
+    (0x2000_0000, 0x12),
+    (0x1200_0000, 0x19),
+    (0x0C00_0000, 0x1F),
+    (0x0700_0000, 0x29),
+    (0x0300_0000, 0x39),
+    (0x0160_0000, 0x46),
+    (0x00F0_0000, 0x4D),
+    (0x00C0_0000, 0x53),
+    (0x00B0_0000, 0x57),
+    (0x00A0_0000, 0x5F),
+    (0x0000_0000, 0xFF),
 ];
-const TABLE2: [u8; 256] = [
+const CODE_LENGTH_RUNS: [u8; 256] = [
     0x08, 0x09, 0x0A, 0x00, 0x07, 0x0B, 0x0C, 0x06, 0x29, 0x2A, 0xE0, 0x04, 0x05, 0x20, 0x28, 0x2B,
     0x2C, 0x40, 0x4A, 0x03, 0x0D, 0x25, 0x26, 0x27, 0x48, 0x49, 0x24, 0x47, 0x4B, 0x4C, 0x69, 0x6A,
     0x23, 0x46, 0x60, 0x63, 0x67, 0x68, 0x88, 0x89, 0xA0, 0xE8, 0x01, 0x02, 0x2D, 0x43, 0x44, 0x45,
@@ -29,67 +36,20 @@ const TABLE2: [u8; 256] = [
     0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE1, 0xE2, 0xE3, 0xEB, 0xED, 0xEE, 0xEF,
     0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF,
 ];
-const TABLE_DATA3: [u8; 768] = [
-    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x99, 0x89, 0x80, 0x80, 0x40, 0x80, 0x40, 0x55, 0x80,
-    0x42, 0x80, 0x80, 0x55, 0x80, 0x98, 0x80, 0x42, 0x80, 0x52, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-    0x55, 0x88, 0x42, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x5A, 0x80, 0x80, 0x52,
-    0x80, 0x80, 0x80, 0x80, 0x92, 0x80, 0x80, 0x40, 0x80, 0x42, 0x80, 0x55, 0x80, 0x40, 0x5A, 0x80,
-    0x80, 0x80, 0x80, 0x80, 0x40, 0x80, 0x80, 0x80, 0x80, 0x80, 0x99, 0x99, 0x80, 0x80, 0x89, 0x88,
-    0x40, 0x40, 0x99, 0x80, 0x8A, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x90, 0x90, 0x90, 0x90, 0x99,
-    0x9A, 0x99, 0x84, 0x98, 0x80, 0x80, 0x9A, 0x99, 0x80, 0x80, 0x99, 0x80, 0x99, 0x80, 0x80, 0x80,
-    0x80, 0x80, 0x9A, 0x80, 0x80, 0x80, 0x8A, 0x99, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x40,
-    0x40, 0x80, 0x80, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x95, 0x80, 0x80,
-    0x91, 0x90, 0x80, 0x80, 0x92, 0x99, 0x80, 0x80, 0x80, 0x40, 0x40, 0x40, 0x99, 0x8A, 0x80, 0x40,
-    0x4A, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-    0x07, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-    0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00,
-    0x08, 0x00, 0x0C, 0x00, 0x10, 0x00, 0x18, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00, 0x60, 0x00,
-    0x80, 0x00, 0xC0, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06,
-    0x00, 0x08, 0x00, 0x0C, 0x00, 0x10, 0x00, 0x18, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00, 0x60,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x14, 0x18, 0x1C,
-    0x20, 0x28, 0x30, 0x38, 0x40, 0x50, 0x60, 0x70, 0x80, 0xA0, 0xC0, 0xE0, 0xFF, 0x00, 0x00, 0x00,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x07,
-    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x08, 0x09, 0x09, 0x0A, 0x0A, 0x0B, 0x0B,
-    0x0C, 0x0C, 0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0E, 0x0E, 0x0E, 0x0E, 0x0F, 0x0F, 0x0F, 0x0F,
-    0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-    0x12, 0x12, 0x12, 0x12, 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13,
-    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
-    0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15,
-    0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16,
-    0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17,
-    0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18,
-    0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18,
-    0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19,
-    0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19, 0x19,
-    0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A,
-    0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A, 0x1A,
-    0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B,
-    0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1C,
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x06,
-    0x07, 0x07, 0x08, 0x08, 0x09, 0x09, 0x0A, 0x0A, 0x0B, 0x0B, 0x0C, 0x0C, 0x0D, 0x0D, 0x0E, 0x0E,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02,
-    0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 0x06, 0x06, 0x06,
-    0x07, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x08, 0x09, 0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0A, 0x0A,
-    0x0B, 0x0B, 0x0B, 0x0B, 0x0C, 0x0C, 0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0E, 0x0E, 0x0E, 0x0E,
-    0x0F, 0x0F, 0x0F, 0x0F, 0x10, 0x10, 0x10, 0x10, 0x11, 0x11, 0x11, 0x11, 0x12, 0x12, 0x12, 0x12,
-    0x13, 0x13, 0x13, 0x13, 0x14, 0x14, 0x14, 0x14, 0x15, 0x15, 0x15, 0x15, 0x16, 0x16, 0x16, 0x16,
-    0x17, 0x17, 0x17, 0x17, 0x18, 0x18, 0x18, 0x18, 0x19, 0x19, 0x19, 0x19, 0x1A, 0x1A, 0x1A, 0x1A,
-    0x1B, 0x1B, 0x1B, 0x1B, 0x1C, 0x1C, 0x1C, 0x1C, 0x1D, 0x1D, 0x1D, 0x1D, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03,
-    0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+const LENGTH_BASES: [u8; 29] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128,
+    160, 192, 224, 255,
 ];
-const TABLE5: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x06,
-    0x07, 0x07, 0x08, 0x08, 0x09, 0x09, 0x0A, 0x0A, 0x0B, 0x0B, 0x0C, 0x0C, 0x0D, 0x0D, 0x0E, 0x0E,
+const LENGTH_EXTRA_BITS: [u8; 29] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
 ];
-const TABLE_DATA6: [u8; 92] = [
-    0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0C, 0x00,
-    0x10, 0x00, 0x18, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00, 0x60, 0x00, 0x80, 0x00, 0xC0, 0x00,
-    0x00, 0x01, 0x80, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0C,
-    0x00, 0x10, 0x00, 0x18, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00, 0x60, 0x00, 0x01, 0x02, 0x03,
-    0x04, 0x05, 0x06, 0x07, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x14, 0x18, 0x1C, 0x20, 0x28, 0x30, 0x38,
-    0x40, 0x50, 0x60, 0x70, 0x80, 0xA0, 0xC0, 0xE0, 0xFF, 0x00, 0x00, 0x00,
+const DISTANCE_BASES: [u16; 30] = [
+    0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536,
+    2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576,
+];
+const DISTANCE_EXTRA_BITS: [u8; 30] = [
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
+    13,
 ];
 const INVALID: u32 = u32::MAX;
 
@@ -97,75 +57,149 @@ pub(crate) fn decompress_gw_dat(input: &[u8]) -> anyhow::Result<Vec<u8>> {
     Decompressor::new(input)?.decompress()
 }
 
+#[derive(Clone, Copy)]
+struct HuffmanEntry {
+    bit_count: u32,
+    symbol: u32,
+}
+
+const EMPTY_HUFFMAN_ENTRY: HuffmanEntry = HuffmanEntry {
+    bit_count: 0,
+    symbol: INVALID,
+};
+
+#[derive(Clone, Copy, Default)]
+struct HuffmanHelper {
+    threshold: u32,
+    last_symbol: u32,
+    bit_count: u32,
+}
+
 struct HuffmanData {
-    table: [u32; 0x200],
-    helper: [u32; 0x48],
-    temp: Vec<u32>,
-    var2: u32,
+    fast: [HuffmanEntry; 0x100],
+    helpers: [HuffmanHelper; 0x18],
+    helper_len: usize,
+    long_symbols: Vec<u32>,
 }
 
 impl Default for HuffmanData {
     fn default() -> Self {
         Self {
-            table: [0; 0x200],
-            helper: [0; 0x48],
-            temp: Vec::new(),
-            var2: 0,
+            fast: [EMPTY_HUFFMAN_ENTRY; 0x100],
+            helpers: [HuffmanHelper::default(); 0x18],
+            helper_len: 0,
+            long_symbols: Vec::new(),
         }
     }
 }
 
-struct Decompressor {
-    input: Vec<u32>,
-    pos: usize,
-    esi8: u32,
-    esi_c: u32,
-    esi10: u32,
+struct BitReader<'a> {
+    words: &'a [[u8; 4]],
+    next_word_index: usize,
+    buffer: u64,
+    valid_bits: u32,
+}
+
+impl<'a> BitReader<'a> {
+    fn new(words: &'a [[u8; 4]]) -> Self {
+        let buffer = (u64::from(u32::from_le_bytes(words[0])) << 32)
+            | u64::from(u32::from_le_bytes(words[1]));
+        Self {
+            words,
+            next_word_index: 2,
+            buffer,
+            valid_bits: 64,
+        }
+    }
+
+    fn peek(&self, bit_count: u32) -> anyhow::Result<u32> {
+        if bit_count >= 32 {
+            bail!("invalid bit count {bit_count}");
+        }
+        if bit_count > self.valid_bits {
+            bail!("compressed Gw.dat bitstream is truncated");
+        }
+        Ok(self.peek_padded(bit_count))
+    }
+
+    fn peek_padded(&self, bit_count: u32) -> u32 {
+        if bit_count == 0 {
+            0
+        } else {
+            (self.buffer >> (64 - bit_count)) as u32
+        }
+    }
+
+    fn peek_u32(&self) -> u32 {
+        (self.buffer >> 32) as u32
+    }
+
+    fn advance(&mut self, bit_count: u32) -> anyhow::Result<()> {
+        if bit_count == 0 {
+            return Ok(());
+        }
+        if bit_count >= 32 {
+            bail!("invalid bit count {bit_count}");
+        }
+        if bit_count > self.valid_bits {
+            bail!("compressed Gw.dat bitstream is truncated");
+        }
+
+        self.buffer <<= bit_count;
+        self.valid_bits -= bit_count;
+
+        if self.valid_bits <= 32 && self.next_word_index < self.words.len() {
+            let word = u64::from(u32::from_le_bytes(self.words[self.next_word_index]));
+            self.next_word_index += 1;
+            self.buffer |= word << (32 - self.valid_bits);
+            self.valid_bits += 32;
+        }
+
+        Ok(())
+    }
+
+    fn read(&mut self, bit_count: u32) -> anyhow::Result<u32> {
+        let value = self.peek(bit_count)?;
+        self.advance(bit_count)?;
+        Ok(value)
+    }
+}
+
+struct Decompressor<'a> {
+    bits: BitReader<'a>,
     out_size: usize,
 }
 
-impl Decompressor {
-    fn new(input: &[u8]) -> anyhow::Result<Self> {
+impl<'a> Decompressor<'a> {
+    fn new(input: &'a [u8]) -> anyhow::Result<Self> {
         if input.len() < 12 {
             bail!("compressed Gw.dat payload is too short");
         }
-        if !input.len().is_multiple_of(4) {
+        let (words, remainder) = input.as_chunks::<4>();
+        if !remainder.is_empty() {
             bail!("compressed Gw.dat payload length is not 32-bit aligned");
         }
 
-        let words = input
-            .chunks_exact(4)
-            .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect::<Vec<_>>();
-        let out_size = *words
-            .last()
-            .context("compressed payload is missing output size")? as usize;
+        let (out_size, compressed_words) = words
+            .split_last()
+            .context("compressed payload is missing output size")?;
+        let out_size = u32::from_le_bytes(*out_size) as usize;
         if out_size > MAX_DECOMPRESSED_SIZE {
             bail!(
-                "declared Gw.dat decompressed size {} exceeds cap {}",
-                out_size,
-                MAX_DECOMPRESSED_SIZE
+                "declared Gw.dat decompressed size {out_size} exceeds cap {MAX_DECOMPRESSED_SIZE}"
             );
         }
 
-        let esi_c = words[0].wrapping_shl(4) | (words[1] >> 28);
-        let esi10 = words[1].wrapping_shl(4);
-        Ok(Self {
-            input: words,
-            pos: 2,
-            esi8: 0x1c,
-            esi_c,
-            esi10,
-            out_size,
-        })
+        let mut bits = BitReader::new(compressed_words);
+        bits.advance(4)?;
+        Ok(Self { bits, out_size })
     }
 
     fn decompress(mut self) -> anyhow::Result<Vec<u8>> {
         let mut output = vec![0_u8; self.out_size];
         let mut out = 0_usize;
 
-        let length_bias = self.esi_c >> 0x1c;
-        self.advance_bits(4)?;
+        let length_bias = self.bits.read(4)?;
 
         if output.is_empty() {
             return Ok(output);
@@ -177,36 +211,27 @@ impl Decompressor {
             let mut distance_tree = HuffmanData::default();
             self.setup_nodes_and_tree(&mut distance_tree)?;
 
-            let block_header = self.esi_c >> 0x1c;
-            self.advance_bits(4)?;
-            let mut block_remaining = (((block_header + 1) << 0x0c) - 1) as i32;
+            let block_header = self.bits.read(4)?;
+            let mut block_remaining = ((block_header + 1) << 0x0c) as usize;
 
-            while block_remaining >= 0 && out != output.len() {
-                let mut symbol = self.decode_symbol(&literal_tree)?;
+            while block_remaining > 0 && out != output.len() {
+                let symbol = self.decode_symbol(&literal_tree)?;
 
                 if symbol < 0x100 {
                     output[out] = symbol as u8;
                     out += 1;
                 } else {
-                    let extra_len_bits = table4(symbol)? as u32;
-                    symbol = table3(symbol)? as u32;
-
+                    let (mut length, extra_len_bits) = length_code(symbol)?;
                     if extra_len_bits != 0 {
-                        symbol |= self.peek_high_bits(extra_len_bits)?;
-                        self.advance_bits(extra_len_bits)?;
+                        length |= self.bits.read(extra_len_bits)?;
                     }
 
-                    let copy_len = length_bias as usize + symbol as usize + 1;
+                    let copy_len = length_bias as usize + length as usize + 1;
                     let distance_symbol = self.decode_symbol(&distance_tree)?;
-                    let distance_extra_bits =
-                        *TABLE5.get(distance_symbol as usize).with_context(|| {
-                            format!("distance symbol {distance_symbol} is out of range")
-                        })? as u32;
-                    let mut backtrack = table6(distance_symbol)? as u32;
+                    let (mut backtrack, distance_extra_bits) = distance_code(distance_symbol)?;
 
                     if distance_extra_bits != 0 {
-                        backtrack |= self.peek_high_bits(distance_extra_bits)?;
-                        self.advance_bits(distance_extra_bits)?;
+                        backtrack |= self.bits.read(distance_extra_bits)?;
                     }
 
                     let distance = backtrack as usize + 1;
@@ -218,10 +243,16 @@ impl Decompressor {
                     if out + copy_len > output.len() {
                         bail!("Gw.dat back-reference exceeds declared output size");
                     }
-                    for _ in 0..copy_len {
-                        let byte = output[out - distance];
-                        output[out] = byte;
-                        out += 1;
+                    if copy_len <= distance {
+                        let source = out - distance;
+                        output.copy_within(source..source + copy_len, out);
+                        out += copy_len;
+                    } else {
+                        for _ in 0..copy_len {
+                            let byte = output[out - distance];
+                            output[out] = byte;
+                            out += 1;
+                        }
                     }
                 }
 
@@ -233,164 +264,121 @@ impl Decompressor {
     }
 
     fn decode_symbol(&mut self, huffman: &HuffmanData) -> anyhow::Result<u32> {
-        let table_index = ((self.esi_c >> 0x18) as usize) * 2;
-        let mut bit_count = huffman.table[table_index];
-        let mut symbol = huffman.table[table_index + 1];
+        let current = self.bits.peek_u32();
+        let entry = huffman.fast[(current >> 0x18) as usize];
+        let mut bit_count = entry.bit_count;
+        let mut symbol = entry.symbol;
 
         if bit_count == INVALID {
-            let mut helper_index = 0_usize;
-            while self.esi_c < huffman.helper[helper_index] {
-                helper_index += 3;
-                if helper_index + 2 >= huffman.helper.len() {
-                    bail!("invalid Huffman helper lookup");
-                }
+            let helper = huffman.helpers[..huffman.helper_len]
+                .iter()
+                .find(|helper| current >= helper.threshold)
+                .context("invalid Huffman helper lookup")?;
+            bit_count = helper.bit_count;
+            if !(9..32).contains(&bit_count) {
+                bail!("invalid Huffman helper bit count {bit_count}");
             }
 
-            bit_count = huffman.helper[helper_index + 2];
-            let shift = 0x20_u32
-                .checked_sub(bit_count)
-                .context("invalid Huffman helper bit count")?;
-            let shifted_delta = if shift >= 32 {
-                0
-            } else {
-                self.esi_c.wrapping_sub(huffman.helper[helper_index]) >> shift
-            };
-            symbol = huffman.helper[helper_index + 1].wrapping_sub(shifted_delta);
-
-            if symbol >= huffman.var2 {
-                bail!(
-                    "Huffman symbol {symbol} exceeds temp table size {}",
-                    huffman.var2
-                );
-            }
+            let shifted_delta = current.wrapping_sub(helper.threshold) >> (0x20 - bit_count);
+            let long_index = helper.last_symbol.wrapping_sub(shifted_delta) as usize;
             symbol = *huffman
-                .temp
-                .get(symbol as usize)
-                .context("Huffman temp table lookup out of bounds")?;
+                .long_symbols
+                .get(long_index)
+                .context("Huffman long-symbol lookup out of bounds")?;
+        } else if symbol == INVALID {
+            bail!("invalid Huffman code prefix");
         }
 
         if bit_count >= 0x20 {
             bail!("invalid Huffman bit count {bit_count}");
         }
-        self.advance_bits(bit_count)?;
+        self.bits.advance(bit_count)?;
         Ok(symbol)
     }
 
     fn setup_nodes_and_tree(&mut self, huffman: &mut HuffmanData) -> anyhow::Result<()> {
-        let symbol_count = self.esi_c >> 0x10;
-        self.advance_bits(0x10)?;
-        if symbol_count > 1_000_000 {
-            bail!("unreasonable Huffman symbol count {symbol_count}");
-        }
-
-        let mut links = vec![0_u32; symbol_count as usize];
-        let mut counts = [0_u32; 0x40];
-        counts[0x20..].fill(INVALID);
-
+        let symbol_count = self.bits.read(0x10)?;
+        let mut next_symbol = vec![0_u32; symbol_count as usize];
+        let mut symbol_heads = [INVALID; 0x20];
         let mut total_codes = 0_u32;
-        let last_symbol = symbol_count.wrapping_sub(1);
-        let mut remaining_symbol = last_symbol;
+        let mut remaining_symbols = symbol_count as usize;
 
-        if remaining_symbol != INVALID {
-            loop {
-                let mut table_index = 0_usize;
-                while self.esi_c < table1(table_index)? {
-                    table_index += 2;
-                    if table_index + 1 >= 28 {
-                        bail!("Huffman setup table lookup failed");
-                    }
-                }
-
-                let bit_count = ((table_index * 4 + 0x18) >> 3) as u32;
-                let shift = 0x20 - bit_count;
-                let table_value = table1(table_index + 1)?;
-                let code = table_value
-                    .wrapping_sub(self.esi_c.wrapping_sub(table1(table_index)?) >> shift);
-                let packed = *TABLE2
+        while remaining_symbols != 0 {
+            let current = self.bits.peek_u32();
+            let lookup_index = CODE_LENGTH_LOOKUP
+                .iter()
+                .position(|&(threshold, _)| current >= threshold)
+                .context("Huffman setup table lookup failed")?;
+            let bit_count = lookup_index as u32 + 3;
+            let shift = 0x20 - bit_count;
+            let (threshold, table_value) = CODE_LENGTH_LOOKUP[lookup_index];
+            let code = table_value.wrapping_sub(current.wrapping_sub(threshold) >> shift);
+            let packed = u32::from(
+                *CODE_LENGTH_RUNS
                     .get(code as usize)
-                    .with_context(|| format!("Huffman setup code {code} is out of range"))?
-                    as u32;
+                    .with_context(|| format!("Huffman setup code {code} is out of range"))?,
+            );
+            self.bits.advance(bit_count)?;
 
-                self.advance_bits(bit_count)?;
+            let run_len = (packed >> 5) + 1;
+            let code_len = (packed & 0x1f) as usize;
+            if run_len as usize > remaining_symbols {
+                bail!(
+                    "Huffman code-length run {run_len} exceeds {remaining_symbols} remaining symbols"
+                );
+            }
 
-                let run = packed >> 5;
-                let code_len = packed & 0x1f;
-                if code_len > 0x1f {
-                    bail!("invalid Huffman code length {code_len}");
+            if code_len != 0 || symbol_count < 2 {
+                total_codes += run_len;
+
+                for _ in 0..run_len {
+                    remaining_symbols -= 1;
+                    let symbol = remaining_symbols as u32;
+                    next_symbol[symbol as usize] = symbol_heads[code_len];
+                    symbol_heads[code_len] = symbol;
                 }
-                if run > remaining_symbol {
-                    return Ok(());
-                }
-
-                if code_len != 0 || symbol_count < 2 {
-                    counts[code_len as usize] = counts[code_len as usize].wrapping_add(run + 1);
-                    total_codes = total_codes.wrapping_add(run + 1);
-                    let mut previous = counts[0x20 + code_len as usize];
-                    let mut run_left = run;
-
-                    loop {
-                        if remaining_symbol >= symbol_count {
-                            bail!("Huffman symbol index out of bounds");
-                        }
-                        links[remaining_symbol as usize] = previous;
-                        previous = remaining_symbol;
-                        counts[0x20 + code_len as usize] = remaining_symbol;
-
-                        if remaining_symbol == 0 {
-                            remaining_symbol = INVALID;
-                        } else {
-                            remaining_symbol -= 1;
-                        }
-
-                        if run_left == 0 || remaining_symbol == INVALID {
-                            break;
-                        }
-                        run_left -= 1;
-                    }
-                } else {
-                    remaining_symbol = remaining_symbol.wrapping_sub(run + 1);
-                }
-
-                if remaining_symbol == INVALID {
-                    break;
-                }
+            } else {
+                remaining_symbols -= run_len as usize;
             }
         }
 
         if symbol_count != 0 && total_codes == 0 {
-            links[last_symbol as usize] = counts[0x20];
-            counts[0x20] = last_symbol;
-            counts[0] = 1;
+            let last_symbol = symbol_count - 1;
+            next_symbol[last_symbol as usize] = symbol_heads[0];
+            symbol_heads[0] = last_symbol;
             total_codes = 1;
         }
 
-        huffman.table = [0; 0x200];
-
+        *huffman = HuffmanData::default();
         let mut code_len = 0_u32;
         let mut populated = 0_u32;
         let mut code = 0_u32;
-        let mut suffix_bits = 8_i32;
 
         while code_len <= 8 {
-            let mut symbol = counts[0x20 + code_len as usize];
+            let mut symbol = symbol_heads[code_len as usize];
             if symbol != INVALID {
                 let limit = 1_u32 << code_len;
                 loop {
-                    if code >= limit || symbol >= symbol_count {
-                        return Ok(());
+                    if code >= limit {
+                        bail!("Huffman code {code} exceeds {code_len}-bit range");
+                    }
+                    if symbol >= symbol_count {
+                        bail!("Huffman symbol {symbol} exceeds symbol count {symbol_count}");
                     }
 
-                    let max_suffix = (1_i32 << suffix_bits) - 1;
-                    for suffix in (0..=max_suffix).rev() {
-                        let index = ((code << (8 - code_len)) | suffix as u32) as usize;
-                        if index >= 0x100 {
-                            bail!("Huffman decode table index out of range");
-                        }
-                        huffman.table[index * 2] = code_len;
-                        huffman.table[index * 2 + 1] = symbol;
-                    }
+                    let suffix_bits = 8 - code_len;
+                    let first = (code << suffix_bits) as usize;
+                    let count = 1_usize << suffix_bits;
+                    huffman
+                        .fast
+                        .get_mut(first..first + count)
+                        .context("Huffman fast-table range out of bounds")?
+                        .fill(HuffmanEntry {
+                            bit_count: code_len,
+                            symbol,
+                        });
 
-                    symbol = links[symbol as usize];
+                    symbol = next_symbol[symbol as usize];
                     populated += 1;
                     code = code.wrapping_sub(1);
                     if symbol == INVALID {
@@ -399,7 +387,6 @@ impl Decompressor {
                 }
             }
 
-            suffix_bits -= 1;
             code = code.wrapping_mul(2).wrapping_add(1);
             code_len += 1;
         }
@@ -407,131 +394,101 @@ impl Decompressor {
         if populated > total_codes {
             bail!("Huffman table over-populated");
         }
-
-        if populated != total_codes {
-            let remaining = total_codes - populated;
-            huffman.temp = vec![0_u32; remaining as usize];
-            huffman.var2 = remaining;
-
-            let mut temp_len = 0_u32;
-            if code_len <= 0x1f {
-                let mut helper_index = 1_usize;
-                while code_len <= 0x1f {
-                    let mut symbol = counts[0x20 + code_len as usize];
-                    if symbol != INVALID {
-                        let limit = 1_u32 << code_len;
-                        loop {
-                            if code > limit || symbol >= symbol_count {
-                                return Ok(());
-                            }
-                            let table_index = (code >> (code_len - 8)) as usize;
-                            huffman.table[table_index * 2] = INVALID;
-                            if temp_len >= huffman.var2 {
-                                bail!("Huffman temp table overflow");
-                            }
-                            huffman.temp[temp_len as usize] = symbol;
-                            symbol = links[symbol as usize];
-                            temp_len += 1;
-                            code = code.wrapping_sub(1);
-                            if symbol == INVALID {
-                                break;
-                            }
-                        }
-
-                        if helper_index + 1 >= huffman.helper.len() {
-                            bail!("Huffman helper table overflow");
-                        }
-                        huffman.helper[helper_index - 1] =
-                            code.wrapping_add(1).wrapping_shl(0x20 - code_len);
-                        huffman.helper[helper_index] = temp_len - 1;
-                        huffman.helper[helper_index + 1] = code_len;
-                        helper_index += 3;
-                    }
-
-                    code = code.wrapping_mul(2).wrapping_add(1);
-                    code_len += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn peek_high_bits(&self, bit_count: u32) -> anyhow::Result<u32> {
-        if bit_count >= 0x20 {
-            bail!("invalid bit count {bit_count}");
-        }
-        if bit_count == 0 {
-            Ok(0)
-        } else {
-            Ok(self.esi_c >> (0x20 - bit_count))
-        }
-    }
-
-    fn advance_bits(&mut self, bit_count: u32) -> anyhow::Result<()> {
-        if bit_count == 0 {
+        if populated == total_codes {
             return Ok(());
         }
-        if bit_count >= 0x20 {
-            bail!("invalid bit count {bit_count}");
+
+        huffman.long_symbols = vec![INVALID; (total_codes - populated) as usize];
+        let mut long_symbol_count = 0_usize;
+
+        while code_len <= 0x1f {
+            let mut symbol = symbol_heads[code_len as usize];
+            if symbol != INVALID {
+                let limit = 1_u32 << code_len;
+                loop {
+                    if code >= limit {
+                        bail!("Huffman code {code} exceeds {code_len}-bit range");
+                    }
+                    if symbol >= symbol_count {
+                        bail!("Huffman symbol {symbol} exceeds symbol count {symbol_count}");
+                    }
+
+                    let fast_index = (code >> (code_len - 8)) as usize;
+                    let fast_entry = huffman
+                        .fast
+                        .get_mut(fast_index)
+                        .context("Huffman long-code prefix out of bounds")?;
+                    if fast_entry.symbol != INVALID {
+                        bail!("Huffman long code overlaps a short code");
+                    }
+                    fast_entry.bit_count = INVALID;
+
+                    let long_symbol = huffman
+                        .long_symbols
+                        .get_mut(long_symbol_count)
+                        .context("Huffman long-symbol table overflow")?;
+                    *long_symbol = symbol;
+                    long_symbol_count += 1;
+                    symbol = next_symbol[symbol as usize];
+                    code = code.wrapping_sub(1);
+                    if symbol == INVALID {
+                        break;
+                    }
+                }
+
+                let helper = huffman
+                    .helpers
+                    .get_mut(huffman.helper_len)
+                    .context("Huffman helper table overflow")?;
+                *helper = HuffmanHelper {
+                    threshold: code.wrapping_add(1).wrapping_shl(0x20 - code_len),
+                    last_symbol: (long_symbol_count - 1) as u32,
+                    bit_count: code_len,
+                };
+                huffman.helper_len += 1;
+            }
+
+            code = code.wrapping_mul(2).wrapping_add(1);
+            code_len += 1;
         }
 
-        self.esi_c = (self.esi10 >> (0x20 - bit_count)) | self.esi_c.wrapping_shl(bit_count);
-
-        if bit_count > self.esi8 {
-            if self.pos == self.input.len() {
-                self.esi8 = 0;
-                self.esi10 = 0;
-            } else {
-                let next = self.input[self.pos];
-                self.pos += 1;
-                let shift = self.esi8 + 0x20 - bit_count;
-                self.esi_c |= next >> shift;
-                self.esi10 = next.wrapping_shl(bit_count - self.esi8);
-                self.esi8 = shift;
-            }
-        } else {
-            self.esi8 -= bit_count;
-            self.esi10 = self.esi10.wrapping_shl(bit_count);
+        if long_symbol_count != huffman.long_symbols.len() {
+            bail!("Huffman long-symbol table is incomplete");
         }
 
         Ok(())
     }
 }
 
-fn table1(index: usize) -> anyhow::Result<u32> {
-    let offset = index * 4;
-    let bytes = TABLE_DATA1
-        .get(offset..offset + 4)
-        .with_context(|| format!("Table1 index {index} out of range"))?;
-    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+fn length_code(symbol: u32) -> anyhow::Result<(u32, u32)> {
+    let index = symbol
+        .checked_sub(0x100)
+        .context("literal symbol used as a length code")? as usize;
+    let Some((&base, &extra_bits)) = LENGTH_BASES.get(index).zip(LENGTH_EXTRA_BITS.get(index))
+    else {
+        bail!("length symbol {symbol} is out of range");
+    };
+    Ok((u32::from(base), u32::from(extra_bits)))
 }
 
-fn table3(index: u32) -> anyhow::Result<u8> {
-    TABLE_DATA3
-        .get(index as usize)
-        .copied()
-        .with_context(|| format!("Table3 index {index} out of range"))
-}
-
-fn table4(index: u32) -> anyhow::Result<u8> {
-    TABLE_DATA3
-        .get(0x1dc + index as usize)
-        .copied()
-        .with_context(|| format!("Table4 index {index} out of range"))
-}
-
-fn table6(index: u32) -> anyhow::Result<u16> {
-    let offset = index as usize * 2;
-    let bytes = TABLE_DATA6
-        .get(offset..offset + 2)
-        .with_context(|| format!("Table6 index {index} out of range"))?;
-    Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+fn distance_code(symbol: u32) -> anyhow::Result<(u32, u32)> {
+    let index = symbol as usize;
+    let Some((&base, &extra_bits)) = DISTANCE_BASES
+        .get(index)
+        .zip(DISTANCE_EXTRA_BITS.get(index))
+    else {
+        bail!("distance symbol {symbol} is out of range");
+    };
+    Ok((u32::from(base), u32::from(extra_bits)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const REPEATED_VECTOR: &str = "\
+        061d01020821f4e421841042841042081042082121f44c8082104208099e444f\
+        a0004083ffa41a98ffffffff00a209fe0800018002180000";
 
     #[test]
     fn rejects_too_short_payload() {
@@ -550,6 +507,60 @@ mod tests {
         let payload = [0_u8; 12];
         let out = decompress_gw_dat(&payload)?;
         assert!(out.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn decompresses_repeated_back_reference_vector() -> anyhow::Result<()> {
+        // Local first-party Gw.dat MFT entry 8096.
+        let input = hex::decode(REPEATED_VECTOR)?;
+        let mut expected = [0x06, 0, 0, 0, 0x10, 0].repeat(1024);
+        expected.extend_from_slice(&[0, 0x54]);
+
+        assert_eq!(decompress_gw_dat(&input)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_truncated_bitstream() -> anyhow::Result<()> {
+        let input = hex::decode(REPEATED_VECTOR)?;
+        let mut truncated = input[..input.len() - 12].to_vec();
+        truncated.extend_from_slice(&input[input.len() - 4..]);
+
+        let err = decompress_gw_dat(&truncated).expect_err("truncated bitstream must fail");
+        assert!(err.to_string().contains("bitstream is truncated"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_huffman_data() -> anyhow::Result<()> {
+        for (byte, mask, expected) in [
+            (0, 1 << 1, "code-length run"),
+            (6, 1 << 4, "invalid Huffman code prefix"),
+        ] {
+            let mut input = hex::decode(REPEATED_VECTOR)?;
+            input[byte] ^= mask;
+            let err = decompress_gw_dat(&input).expect_err("invalid Huffman data must fail");
+            assert!(err.to_string().contains(expected), "{err:#}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn decompresses_texture_header_vector() -> anyhow::Result<()> {
+        // Local first-party Gw.dat MFT entry 63319.
+        let input = hex::decode(
+            "380e010299c0792a841042c8082107211072104240c84984404ff25420a7693c2\
+             1a782d39c04a1073c159e090607001a116c30c12abc7306e2fdd779317da190\
+             58608ca50800018054000000",
+        )?;
+        let expected = hex::decode(
+            "4154455844585431200020000c0000000100000000008f6d0c00000001000000\
+             000000060c00000001000000000000360c00000001000000000000c00c000000\
+             01000000000000c00c00000001000000000000c0",
+        )?;
+
+        assert_eq!(decompress_gw_dat(&input)?, expected);
         Ok(())
     }
 }

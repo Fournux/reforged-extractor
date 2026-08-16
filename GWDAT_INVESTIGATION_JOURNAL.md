@@ -1,6 +1,6 @@
 # Gw.dat investigation journal
 
-Last updated: 2026-07-26
+Last updated: 2026-08-16
 
 This journal records durable discoveries, rejected interpretations, the latest capture evidence, and unresolved questions. Format details belong in the focused references:
 
@@ -17,6 +17,12 @@ A conclusion is retained here only when it is supported by repeatable binary str
 Negative results are scoped to the data and layouts examined. They reject the stated interpretation; they do not prove that no equivalent structure exists elsewhere.
 
 ## Durable parser discoveries
+
+### DAT compressed stream boundary
+
+The final `u32` in a compression-code-8 payload is exclusively the decoded byte count; it is not a bitstream refill word. A differential scan restricted refills to the preceding words and reproduced all 64,073 current compressed entries byte-for-byte: 2,006,379,120 stored bytes produced 2,994,213,039 decoded bytes.
+
+The previous reader could consume the size trailer and then supply implicit zero bits. After removing two words before the preserved trailer, 17 of 65 representative payloads returned corrupted output without an error. Strict bit availability and fail-closed Huffman construction now reject truncated streams, excessive code-length runs, invalid prefixes, reserved length/distance symbols, and incomplete long-code tables.
 
 ### Odd-aligned UTF-16LE and printable trailers
 

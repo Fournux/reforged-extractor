@@ -25,7 +25,13 @@ The compressed payload has these framing rules:
 4. The final word is the exact decoded size in bytes.
 5. Decoding ends when the declared number of output bytes has been produced.
 
+The final size word is framing only; it never participates in the compressed bitstream. Any word-alignment padding required by the encoder precedes that trailer. A decoder that needs more bits after exhausting the preceding words must reject the payload as truncated rather than reading the size word or supplying implicit zero bits.
+
+The literal/length alphabet contains byte literals `0x00..0xff` and 29 length symbols `0x100..0x11c`. The distance alphabet contains 30 symbols `0..29`. Other length or distance symbols are reserved and invalid.
+
 Each block carries Huffman symbol counts and code-length runs. Format-specific fixed tables decode those runs into the block's literal/length and distance trees. Literal symbols emit one byte. Length/distance symbols copy bytes from already-decoded output; overlapping source and destination ranges use normal LZ77 forward-copy semantics. A distance cannot precede the beginning of the decoded output, and a copy cannot exceed the declared output size.
+
+Code-length runs must cover the declared symbol count without overrunning it. Canonical codes must fit their declared bit width and reference a declared symbol. Unassigned fast-table prefixes, missing long-code helpers, and incomplete long-symbol tables are malformed input rather than implicit symbol zero.
 
 ## 3. ATEX and ATTX
 
