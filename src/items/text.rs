@@ -1,59 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::text::{
-    apply_encoded_template, encoded_values_from_hex, encoded_values_from_words,
+    apply_encoded_template, clean_display_text, encoded_values_from_hex, encoded_values_from_words,
     encoded_words_from_hex, text_references,
 };
 
 pub(super) const GENERIC_ITEM_NAME_TEXT_ID: u32 = 8326;
-
-// Clean item names, plurals, brackets, etc.
-pub(super) fn clean_item_name(text: &str) -> String {
-    let mut text = text.replace("[lbracket]", "[").replace("[rbracket]", "]");
-
-    // Replace bracket tags: [proper], [F], [M], [N], [PF], [PM], [U]
-    let bracket_tags = ["proper", "F", "M", "N", "PF", "PM", "U"];
-    for tag in &bracket_tags {
-        text = text.replace(&format!("[{tag}]"), "");
-    }
-
-    // Remove plural/gender selector tags exactly like the Python validator:
-    // [s], [pl:"..."], [f:"..."], and [m:"..."] are markup, not display text.
-    while let Some(start) = text.find('[') {
-        if let Some(end) = text[start..].find(']') {
-            text.replace_range(start..=start + end, "");
-        } else {
-            break;
-        }
-    }
-
-    // Strip HTML/XML tags
-    while let Some(start) = text.find('<') {
-        if let Some(end) = text[start..].find('>') {
-            text.replace_range(start..=start + end, "");
-        } else {
-            break;
-        }
-    }
-
-    // Collapse whitespace and trim
-    let mut result = String::new();
-    let mut in_space = false;
-    for c in text.chars() {
-        if c.is_whitespace() {
-            if !in_space {
-                result.push(' ');
-                in_space = true;
-            }
-        } else {
-            result.push(c);
-            in_space = false;
-        }
-    }
-    result
-        .trim_matches(|c: char| c.is_whitespace() || c == '\0')
-        .to_string()
-}
 
 pub(super) fn looks_like_item_name(raw_text: &str) -> bool {
     if raw_text.is_empty() || raw_text == "[null]" || raw_text == "..." || raw_text == "Unknown" {
@@ -73,7 +25,7 @@ pub(super) fn looks_like_item_name(raw_text: &str) -> bool {
         return false;
     }
 
-    let text = clean_item_name(raw_text);
+    let text = clean_display_text(raw_text);
     if text.is_empty() || text.len() < 2 || text.len() > 80 {
         return false;
     }
@@ -84,13 +36,12 @@ pub(super) fn looks_like_item_name(raw_text: &str) -> bool {
         return false;
     }
 
-    let has_digit = text.chars().any(|c| c.is_ascii_digit());
-    if has_digit {
-        let words: BTreeSet<&str> = text.split(|c: char| !c.is_alphanumeric()).collect();
-        let allowed = ["1st", "2nd", "3rd", "Zaishen", "PvP"];
-        if !allowed.iter().any(|&w| words.contains(w)) {
-            return false;
-        }
+    if text.chars().any(|c| c.is_ascii_digit())
+        && !text
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|word| matches!(word, "1st" | "2nd" | "3rd" | "Zaishen" | "PvP"))
+    {
+        return false;
     }
 
     let lower = text.to_lowercase();
@@ -193,7 +144,7 @@ pub(super) fn decode_encoded_name_fields(
     asyncdecode_item_ids_from_hex(hex)
         .and_then(|ids| decode_text_fields_from_ids(&ids, by_text_id, "name"))
         .or_else(|| {
-            let ids = encoded_name_ids_from_hex(hex)?;
+            let ids = encoded_text_ids_from_hex(hex)?;
             decode_text_fields_from_ids(&ids, by_text_id, "name")
         })
 }
@@ -206,7 +157,7 @@ pub(super) fn decode_encoded_description_fields(
     asyncdecode_item_ids_from_hex(hex)
         .and_then(|ids| decode_text_fields_from_exact_ids(&ids, by_text_id, "description"))
         .or_else(|| {
-            let ids = encoded_name_ids_from_hex(hex)?;
+            let ids = encoded_text_ids_from_hex(hex)?;
             decode_text_fields_from_exact_ids(&ids, by_text_id, "description")
         })
 }
@@ -215,7 +166,13 @@ pub(super) fn decode_name_fields_from_exact_ids(
     ids: &[u32],
     by_text_id: &BTreeMap<u32, BTreeMap<String, String>>,
 ) -> Option<BTreeMap<String, String>> {
-    decode_text_fields_from_exact_ids(ids, by_text_id, "name")
+    if let [id] = ids {
+        return by_text_id
+            .get(id)
+            .map(flat_runtime_name_fields)
+            .filter(|fields| !fields.is_empty());
+    }
+    decode_text_fields_from_ids(ids, by_text_id, "name")
 }
 
 pub(super) fn decode_description_fields_from_exact_ids(
@@ -251,27 +208,29 @@ pub(super) fn decode_text_fields_from_ids(
     let template_names = by_text_id.get(template_id)?;
     let mut fields = BTreeMap::new();
     for (code, template) in template_names {
-        let args = arg_ids
+        let Some(args) = arg_ids
             .iter()
-            .filter_map(|id| {
+            .map(|id| {
                 by_text_id
                     .get(id)
                     .and_then(|names| names.get(code).or_else(|| names.get("en")))
                     .cloned()
             })
-            .collect::<Vec<_>>();
-        let text = clean_item_name(&apply_encoded_template(template, &args));
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let rendered = apply_encoded_template(template, &args);
+        let mut text = clean_display_text(&rendered);
+        let trimmed_len = text.trim_end_matches('%').len();
+        text.truncate(trimmed_len);
         if text.is_empty()
-            || text == "[null]"
-            || encoded_name_has_unresolved_placeholder(&text)
+            || encoded_text_has_unresolved_placeholder(&text)
             || is_invalid_label(&text)
         {
             continue;
         }
-        let text = clean_item_name(text.trim_end_matches('%'));
-        if !text.is_empty() && !is_invalid_label(&text) {
-            fields.insert(format!("{prefix}_{code}"), text);
-        }
+        fields.insert(format!("{prefix}_{code}"), text);
     }
     (!fields.is_empty()).then_some(fields)
 }
@@ -284,7 +243,7 @@ const ASYNCDECODE_ITEM_CONTROL_WORDS: &[u16] = &[
 
 const ASYNCDECODE_ITEM_CONTROL_IDS: &[u64] = &[37_404, 56_261, 69_415];
 
-pub(super) fn encoded_name_ids_from_hex(hex: &str) -> Option<Vec<u32>> {
+pub(super) fn encoded_text_ids_from_hex(hex: &str) -> Option<Vec<u32>> {
     Some(
         encoded_values_from_hex(hex)?
             .into_iter()
@@ -329,7 +288,7 @@ pub(super) fn should_emit_asyncdecode_item_id(
     !ASYNCDECODE_ITEM_CONTROL_IDS.contains(&value)
 }
 
-pub(super) fn encoded_name_seeds_from_hex(hex: &str) -> Option<BTreeMap<u32, u64>> {
+pub(super) fn encoded_text_seeds_from_hex(hex: &str) -> Option<BTreeMap<u32, u64>> {
     Some(
         text_references(&encoded_words_from_hex(hex)?)
             .into_iter()
@@ -339,11 +298,23 @@ pub(super) fn encoded_name_seeds_from_hex(hex: &str) -> Option<BTreeMap<u32, u64
     )
 }
 
-pub(super) fn encoded_name_has_unresolved_placeholder(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
+pub(super) fn encoded_text_has_unresolved_placeholder(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
     ["%str", "%num", "%s", "%d"]
         .iter()
         .any(|placeholder| lower.contains(placeholder))
+}
+
+pub(super) fn flat_runtime_name_fields(
+    names: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    names
+        .iter()
+        .filter_map(|(code, text)| {
+            let text = clean_display_text(text);
+            (!text.is_empty() && !is_invalid_label(&text)).then(|| (format!("name_{code}"), text))
+        })
+        .collect()
 }
 
 pub(super) fn flat_runtime_text_fields(

@@ -63,10 +63,6 @@ impl DatArchive {
         mft_entry_by_index(&self.entries, index).copied()
     }
 
-    pub(crate) fn mft_index_for_file_id(&self, file_id: u32) -> Option<u32> {
-        lookup_mft_index_for_file_id(file_id, &self.hash_to_mft)
-    }
-
     pub(crate) fn entry_for_file_id(&self, file_id: u32) -> Option<MftEntry> {
         lookup_mft_entry_for_file_id(file_id, &self.hash_to_mft, &self.entries).copied()
     }

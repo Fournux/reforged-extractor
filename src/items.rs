@@ -18,16 +18,16 @@ pub(crate) fn extract_catalog(
     out_path: &Path,
     use_client_strings: bool,
 ) -> anyhow::Result<()> {
-    let text_inputs = capture::packet_log_text_inputs(capture_path, use_client_strings)
-        .with_context(|| format!("reading item text inputs from {}", capture_path.display()))?;
+    let capture = capture::read_item_capture(capture_path, use_client_strings)
+        .with_context(|| format!("reading item capture from {}", capture_path.display()))?;
     let text_lookup = archive::resolve_item_text_lookup(
         snapshot,
-        &text_inputs.name_ids,
-        &text_inputs.compact_seeds,
-        &text_inputs.decoded_records,
+        &capture.text_ids,
+        &capture.compact_seeds,
+        &capture.decoded_records,
     )
     .with_context(|| format!("resolving item names from {}", snapshot.display()))?;
-    catalog::write_from_capture(capture_path, &text_lookup, out_path, use_client_strings)
+    catalog::write_catalog(capture, &text_lookup, out_path)
         .with_context(|| format!("extracting runtime items from {}", capture_path.display()))
 }
 

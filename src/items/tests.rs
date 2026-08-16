@@ -1,8 +1,11 @@
 use super::{
     archive::ItemTextLookup,
-    capture::{packet_log_decoded_text_records, packet_log_name_ids, packet_log_name_seeds},
+    capture::{packet_log_decoded_text_records, packet_log_text_ids, packet_log_text_seeds},
     catalog::{write_from_capture, write_from_capture_for_test},
-    text::{asyncdecode_item_ids_for_test, encoded_value_spans_for_test, encoded_values_for_test},
+    text::{
+        asyncdecode_item_ids_for_test, decode_name_fields_from_exact_ids,
+        encoded_value_spans_for_test, encoded_values_for_test,
+    },
 };
 use crate::{tests::TestDir, text::records};
 use std::{
@@ -10,6 +13,42 @@ use std::{
     fs::{self, File},
     path::Path,
 };
+
+#[test]
+fn item_names_preserve_literal_brackets_through_exact_ids() {
+    let by_text_id = BTreeMap::from([(
+        100,
+        BTreeMap::from([(
+            "en".to_string(),
+            "[F]Agent[f:\"Agentka\"] [lbracket]Storage[rbracket]".to_string(),
+        )]),
+    )]);
+    let fields = decode_name_fields_from_exact_ids(&[100], &by_text_id).unwrap();
+
+    assert_eq!(
+        fields.get("name_en").map(String::as_str),
+        Some("Agent [Storage]")
+    );
+}
+
+#[test]
+fn item_templates_reject_missing_arguments_without_shifting() {
+    let by_text_id = BTreeMap::from([
+        (
+            100,
+            BTreeMap::from([("en".to_string(), "Prefix %str1".to_string())]),
+        ),
+        (
+            300,
+            BTreeMap::from([("en".to_string(), "Wrong argument".to_string())]),
+        ),
+    ]);
+
+    assert_eq!(
+        decode_name_fields_from_exact_ids(&[100, 200, 300], &by_text_id),
+        None
+    );
+}
 
 #[test]
 fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> {
@@ -24,7 +63,7 @@ fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> 
         ),
     )?;
 
-    assert_eq!(packet_log_name_ids(&packet_log)?, BTreeSet::from([8360]));
+    assert_eq!(packet_log_text_ids(&packet_log)?, BTreeSet::from([8360]));
 
     let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
@@ -85,7 +124,7 @@ fn packet_log_text_decode_ids_rows_feed_name_id_lookup() -> anyhow::Result<()> {
     )?;
 
     assert_eq!(
-        packet_log_name_ids(&packet_log)?,
+        packet_log_text_ids(&packet_log)?,
         BTreeSet::from([100, 200])
     );
     Ok(())
@@ -100,9 +139,9 @@ fn packet_log_encoded_names_feed_compact_record_seeds() -> anyhow::Result<()> {
         "{\"kind\":\"text_decode_ids\",\"language_id\":8,\"encoded_hex\":\"a82157d18fb56f160000\",\"decoded_ids\":[8360]}\n",
     )?;
 
-    assert_eq!(packet_log_name_ids(&packet_log)?, BTreeSet::from([8360]));
+    assert_eq!(packet_log_text_ids(&packet_log)?, BTreeSet::from([8360]));
     assert_eq!(
-        packet_log_name_seeds(&packet_log)?.get(&8360).copied(),
+        packet_log_text_seeds(&packet_log)?.get(&8360).copied(),
         Some(21_740_376_426_095)
     );
     Ok(())
@@ -333,6 +372,69 @@ fn packet_log_items_json_deduplicates_model_file_variant_and_prefers_named_row()
 }
 
 #[test]
+fn merged_item_ids_merge_client_languages() -> anyhow::Result<()> {
+    let temp = TestDir::new()?;
+    let packet_log = temp.path().join("reforged_packets.jsonl");
+    fs::write(
+        &packet_log,
+        concat!(
+            "{\"item_id\":1,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32}\n",
+            "{\"kind\":\"decoded_name\",\"item_id\":1,\"model_id\":32,\"model_file_id\":222,\"lang\":\"en\",\"name\":\"Black Dye\"}\n",
+            "{\"kind\":\"decoded_description\",\"item_id\":1,\"model_id\":32,\"model_file_id\":222,\"lang\":\"en\",\"description\":\"English description\"}\n",
+            "{\"item_id\":2,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32}\n",
+            "{\"kind\":\"decoded_name\",\"item_id\":2,\"model_id\":32,\"model_file_id\":222,\"lang\":\"fr\",\"name\":\"Teinture noire\"}\n",
+            "{\"kind\":\"decoded_description\",\"item_id\":2,\"model_id\":32,\"model_file_id\":222,\"lang\":\"fr\",\"description\":\"Description française\"}\n",
+        ),
+    )?;
+
+    let out = temp.path().join("items/items.json");
+    write_from_capture_for_test(&packet_log, &ItemTextLookup::default(), &out)?;
+    let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
+
+    assert_eq!(json[0]["name_en"].as_str(), Some("Black Dye"));
+    assert_eq!(json[0]["name_fr"].as_str(), Some("Teinture noire"));
+    assert_eq!(
+        json[0]["description_en"].as_str(),
+        Some("English description")
+    );
+    assert_eq!(
+        json[0]["description_fr"].as_str(),
+        Some("Description française")
+    );
+    Ok(())
+}
+
+#[test]
+fn merged_item_ids_reject_conflicting_client_language() -> anyhow::Result<()> {
+    let temp = TestDir::new()?;
+    let packet_log = temp.path().join("reforged_packets.jsonl");
+    fs::write(
+        &packet_log,
+        concat!(
+            "{\"item_id\":1,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32}\n",
+            "{\"kind\":\"decoded_name\",\"item_id\":1,\"model_id\":32,\"model_file_id\":222,\"lang\":\"en\",\"name\":\"First guess\"}\n",
+            "{\"item_id\":2,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32}\n",
+            "{\"kind\":\"decoded_name\",\"item_id\":2,\"model_id\":32,\"model_file_id\":222,\"lang\":\"en\",\"name\":\"Second guess\"}\n",
+        ),
+    )?;
+    let names = ItemTextLookup {
+        by_model_file_id: BTreeMap::from([(
+            222,
+            BTreeMap::from([("en".to_string(), "DAT fallback".to_string())]),
+        )]),
+        ..ItemTextLookup::default()
+    };
+
+    let out = temp.path().join("items/items.json");
+    write_from_capture_for_test(&packet_log, &names, &out)?;
+    let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
+
+    assert_eq!(json[0]["name_en"].as_str(), Some("DAT fallback"));
+    assert!(json[0].get("name").is_none());
+    Ok(())
+}
+
+#[test]
 fn packet_log_items_json_keeps_distinct_model_file_variants() -> anyhow::Result<()> {
     let temp = TestDir::new()?;
     let packet_log = temp.path().join("reforged_packets.jsonl");
@@ -469,7 +571,7 @@ fn packet_log_encoded_name_hex_expands_template_names() -> anyhow::Result<()> {
         "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_text_id\":100,\"enc_name_hex\":\"6401c8010000\"}\n",
     )?;
     assert_eq!(
-        packet_log_name_ids(&packet_log)?,
+        packet_log_text_ids(&packet_log)?,
         BTreeSet::from([100, 200])
     );
 
@@ -543,7 +645,7 @@ fn packet_log_desc_enc_hex_expands_description_templates() -> anyhow::Result<()>
         &packet_log,
         "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_id\":100,\"enc_name_hex\":\"64010000\",\"desc_enc_hex\":\"2c0290020000\"}\n",
     )?;
-    assert!(packet_log_name_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
+    assert!(packet_log_text_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
     let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
@@ -595,7 +697,7 @@ fn runtime_item_strings_attach_description_without_extra_item_row() -> anyhow::R
             "{\"kind\":\"runtime_item_strings\",\"item_id\":2,\"model_id\":32,\"model_file_id\":111926,\"desc_complete\":true,\"desc_enc_hex\":\"2c0290020000\"}\n",
         ),
     )?;
-    assert!(packet_log_name_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
+    assert!(packet_log_text_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
     let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
@@ -654,7 +756,7 @@ fn runtime_item_strings_complete_name_can_name_item() -> anyhow::Result<()> {
             ),
             (
                 300,
-                BTreeMap::from([("en".to_string(), "%str1%".to_string())]),
+                BTreeMap::from([("en".to_string(), "%str1%[F]".to_string())]),
             ),
         ]),
         by_model_file_id: BTreeMap::new(),
@@ -679,6 +781,8 @@ fn text_decode_ids_match_runtime_hex_with_extra_null() -> anyhow::Result<()> {
         concat!(
             "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32}\n",
             "{\"kind\":\"runtime_item_strings\",\"item_id\":2,\"model_id\":32,\"model_file_id\":111926,\"complete_name_enc_hex\":\"aaaa\"}\n",
+            "{\"item_id\":3,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32}\n",
+            "{\"kind\":\"runtime_item_strings\",\"item_id\":3,\"model_id\":32,\"model_file_id\":111926,\"complete_name_enc_hex\":\"AAAA00000000\"}\n",
             "{\"kind\":\"text_decode_ids\",\"language_id\":0,\"encoded_hex\":\"aaaa0000\",\"decoded_ids\":[100]}\n",
         ),
     )?;

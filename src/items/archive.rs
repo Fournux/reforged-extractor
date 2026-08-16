@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-use super::text::{clean_item_name, is_invalid_label, looks_like_item_name};
+use super::text::{is_invalid_label, looks_like_item_name};
 #[derive(Debug, Default)]
 pub(super) struct ItemTextLookup {
     pub(super) by_text_id: BTreeMap<u32, BTreeMap<String, String>>,
@@ -116,22 +116,16 @@ const ITEM_TEXT_SOURCES: &[ItemTextSource] = &[
     },
 ];
 
-pub(super) fn in_ranges(ordinal: u32, ranges: &[(u32, u32)]) -> bool {
+const MODEL_NAME_LINK_PREFIX_SIZE: usize = 8;
+const MODEL_NAME_LINK_SCAN_STEP: usize = 4;
+const MODEL_NAME_LINK_COMPACT_STRIDE: usize = 0x24;
+const MODEL_NAME_LINK_EXTENDED_STRIDE: usize = 0x28;
+const MIN_MODEL_NAME_LINK_RUN: usize = 4;
+
+fn in_ranges(ordinal: u32, ranges: &[(u32, u32)]) -> bool {
     ranges
         .iter()
         .any(|&(start, end)| ordinal >= start && ordinal <= end)
-}
-
-pub(super) fn calc_runtime_ordinal_base(file_id: u32) -> u32 {
-    let offset = file_id.saturating_sub(185423);
-    let shift = if offset <= 26 {
-        0
-    } else if offset <= 50 {
-        1
-    } else {
-        2
-    };
-    offset.saturating_sub(shift) * TEXT_RECORDS_PER_FILE
 }
 
 pub(super) fn build_item_name_catalog(
@@ -142,7 +136,6 @@ pub(super) fn build_item_name_catalog(
     let compact_seeds = BTreeMap::new();
     let mut reader = LocalizedTextReader::new(archive, pe, &compact_seeds, &decoded_records)?;
     let mut localized_names_by_id = BTreeMap::new();
-    let mut seen = BTreeSet::new();
 
     for source in ITEM_TEXT_SOURCES {
         let Some(resource_file_id) = reader.file_id("en", source.text_file_index) else {
@@ -151,7 +144,10 @@ pub(super) fn build_item_name_catalog(
         let Some(entry_bytes) = reader.read_resource_file(resource_file_id)? else {
             continue;
         };
-        let base_ordinal = calc_runtime_ordinal_base(resource_file_id);
+        let base_text_id = u32::try_from(source.text_file_index)
+            .context("item text file index exceeds u32")?
+            .checked_mul(TEXT_RECORDS_PER_FILE)
+            .context("item text id base overflow")?;
 
         for record in records::parse_text_record_entries(&entry_bytes).with_context(|| {
             format!("parsing item text records from DAT file {resource_file_id}")
@@ -166,26 +162,25 @@ pub(super) fn build_item_name_catalog(
             if !looks_like_item_name(raw_name) {
                 continue;
             }
-            let name = clean_item_name(raw_name);
+            let name = crate::text::clean_display_text(raw_name);
             if is_invalid_label(&name) {
                 continue;
             }
 
-            let string_id = base_ordinal + record.record_index;
-            if !seen.insert((string_id, name.clone())) {
-                continue;
-            }
+            let text_id = base_text_id
+                .checked_add(record.record_index)
+                .context("item text id overflow")?;
 
             let mut localized_name = reader
                 .localized_record(source.text_file_index, record.record_index)?
                 .into_iter()
                 .filter_map(|(code, text)| {
-                    let text = clean_item_name(&text);
+                    let text = crate::text::clean_display_text(&text);
                     (!text.is_empty()).then_some((code, text))
                 })
                 .collect::<BTreeMap<_, _>>();
             localized_name.insert("en".to_string(), name);
-            localized_names_by_id.insert(string_id, localized_name);
+            localized_names_by_id.insert(text_id, localized_name);
         }
     }
 
@@ -219,6 +214,33 @@ pub(super) fn resolve_item_text_lookup(
         exact_text_ids,
     })
 }
+fn candidate_run_len(start: usize, stride: usize, candidate_starts: &BTreeSet<usize>) -> usize {
+    let mut count = 0;
+    let mut offset = start;
+    while candidate_starts.contains(&offset) {
+        count += 1;
+        let Some(next) = offset.checked_add(stride) else {
+            break;
+        };
+        offset = next;
+    }
+    count
+}
+
+fn model_name_link_layout(
+    start: usize,
+    candidate_starts: &BTreeSet<usize>,
+) -> Option<(usize, usize)> {
+    let compact_len = candidate_run_len(start, MODEL_NAME_LINK_COMPACT_STRIDE, candidate_starts);
+    let extended_len = candidate_run_len(start, MODEL_NAME_LINK_EXTENDED_STRIDE, candidate_starts);
+    let layout = if extended_len >= compact_len {
+        (MODEL_NAME_LINK_EXTENDED_STRIDE, extended_len)
+    } else {
+        (MODEL_NAME_LINK_COMPACT_STRIDE, compact_len)
+    };
+    (layout.1 >= MIN_MODEL_NAME_LINK_RUN).then_some(layout)
+}
+
 pub(super) fn scan_model_file_simple_name_links(
     pe: &PeImage<'_>,
     localized_names_by_id: &BTreeMap<u32, BTreeMap<String, String>>,
@@ -238,92 +260,124 @@ pub(super) fn scan_model_file_simple_name_links(
 
     let mut candidate_starts = BTreeSet::new();
     let mut offset = raw_start;
-    while offset + 8 <= raw_end {
+    while offset
+        .checked_add(MODEL_NAME_LINK_PREFIX_SIZE)
+        .is_some_and(|end| end <= raw_end)
+    {
         let model_file_id = u32::from_le_bytes([
             pe_bytes[offset],
             pe_bytes[offset + 1],
             pe_bytes[offset + 2],
             pe_bytes[offset + 3],
         ]);
-        let name_string_id = u32::from_le_bytes([
+        let name_text_id = u32::from_le_bytes([
             pe_bytes[offset + 4],
             pe_bytes[offset + 5],
             pe_bytes[offset + 6],
             pe_bytes[offset + 7],
         ]);
 
-        if localized_names_by_id.contains_key(&name_string_id)
-            && archive
-                .mft_index_for_file_id(model_file_id)
-                .is_some_and(|mft_index| archive.entry(mft_index).is_some())
+        if localized_names_by_id.contains_key(&name_text_id)
+            && archive.entry_for_file_id(model_file_id).is_some()
         {
             candidate_starts.insert(offset);
         }
-        offset += 4;
+        offset += MODEL_NAME_LINK_SCAN_STEP;
     }
 
-    let run_len = |start: usize, stride: usize, candidate_starts: &BTreeSet<usize>| -> usize {
-        let mut count = 0;
-        let mut off = start;
-        while candidate_starts.contains(&off) {
-            count += 1;
-            off += stride;
-        }
-        count
-    };
-
     let mut covered = BTreeSet::new();
-    let mut names_by_model_file_id =
-        BTreeMap::<u32, BTreeMap<u32, BTreeMap<String, String>>>::new();
-
+    let mut text_ids_by_model_file_id = BTreeMap::<u32, BTreeSet<u32>>::new();
     for &start in &candidate_starts {
         if covered.contains(&start) {
             continue;
         }
-
-        let len_24 = run_len(start, 0x24, &candidate_starts);
-        let len_28 = run_len(start, 0x28, &candidate_starts);
-        let (stride, count) = if len_28 >= len_24 {
-            (0x28, len_28)
-        } else {
-            (0x24, len_24)
-        };
-        if count < 4 {
+        let Some((stride, count)) = model_name_link_layout(start, &candidate_starts) else {
             continue;
-        }
+        };
 
         for index in 0..count {
-            let off = start + index * stride;
-            covered.insert(off);
+            let offset = start + index * stride;
+            covered.insert(offset);
             let model_file_id = u32::from_le_bytes([
-                pe_bytes[off],
-                pe_bytes[off + 1],
-                pe_bytes[off + 2],
-                pe_bytes[off + 3],
+                pe_bytes[offset],
+                pe_bytes[offset + 1],
+                pe_bytes[offset + 2],
+                pe_bytes[offset + 3],
             ]);
-            let item_id = u32::from_le_bytes([
-                pe_bytes[off + 4],
-                pe_bytes[off + 5],
-                pe_bytes[off + 6],
-                pe_bytes[off + 7],
+            let name_text_id = u32::from_le_bytes([
+                pe_bytes[offset + 4],
+                pe_bytes[offset + 5],
+                pe_bytes[offset + 6],
+                pe_bytes[offset + 7],
             ]);
-            if let Some(names) = localized_names_by_id.get(&item_id) {
-                names_by_model_file_id
+            if localized_names_by_id.contains_key(&name_text_id) {
+                text_ids_by_model_file_id
                     .entry(model_file_id)
                     .or_default()
-                    .insert(item_id, names.clone());
+                    .insert(name_text_id);
             }
         }
     }
 
     let mut out = BTreeMap::new();
-    for (model_file_id, names_by_item_id) in names_by_model_file_id {
-        let unique_names = names_by_item_id.values().cloned().collect::<BTreeSet<_>>();
-        if unique_names.len() == 1
-            && let Some(names) = unique_names.into_iter().next()
-        {
-            out.insert(model_file_id, names);
+    for (model_file_id, text_ids) in text_ids_by_model_file_id {
+        let mut localized = text_ids
+            .iter()
+            .filter_map(|text_id| localized_names_by_id.get(text_id));
+        let Some(first) = localized.next() else {
+            continue;
+        };
+        if localized.all(|names| names == first) {
+            out.insert(model_file_id, first.clone());
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate_run(stride: usize, count: usize) -> BTreeSet<usize> {
+        (0..count).map(|index| 100 + index * stride).collect()
+    }
+
+    #[test]
+    fn item_text_sources_have_unique_valid_ranges() {
+        let mut file_indices = BTreeSet::new();
+        for source in ITEM_TEXT_SOURCES {
+            assert!(file_indices.insert(source.text_file_index));
+            assert!(!source.ranges.is_empty());
+            for &(start, end) in source.ranges {
+                assert!(start <= end);
+                assert!(end < TEXT_RECORDS_PER_FILE);
+            }
+        }
+    }
+
+    #[test]
+    fn model_name_link_layout_requires_a_complete_run() {
+        let compact = candidate_run(MODEL_NAME_LINK_COMPACT_STRIDE, MIN_MODEL_NAME_LINK_RUN);
+        assert_eq!(
+            model_name_link_layout(100, &compact),
+            Some((MODEL_NAME_LINK_COMPACT_STRIDE, MIN_MODEL_NAME_LINK_RUN))
+        );
+
+        let short = candidate_run(MODEL_NAME_LINK_EXTENDED_STRIDE, MIN_MODEL_NAME_LINK_RUN - 1);
+        assert_eq!(model_name_link_layout(100, &short), None);
+    }
+
+    #[test]
+    fn model_name_link_layout_prefers_extended_stride_on_ties() {
+        let mut candidates = candidate_run(MODEL_NAME_LINK_COMPACT_STRIDE, MIN_MODEL_NAME_LINK_RUN);
+        candidates.extend(candidate_run(
+            MODEL_NAME_LINK_EXTENDED_STRIDE,
+            MIN_MODEL_NAME_LINK_RUN,
+        ));
+
+        assert_eq!(
+            model_name_link_layout(100, &candidates),
+            Some((MODEL_NAME_LINK_EXTENDED_STRIDE, MIN_MODEL_NAME_LINK_RUN))
+        );
+    }
 }

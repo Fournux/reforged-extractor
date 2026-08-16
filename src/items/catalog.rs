@@ -5,22 +5,21 @@ use std::{
     path::Path,
 };
 
-use crate::{capture::for_each_jsonl_row, io_util::write_json};
+use crate::{io_util::write_json, text::clean_display_text};
 
 use super::{
     archive::ItemTextLookup,
-    capture::{
-        ItemKey, ItemObservation, canonical_encoded_hex, insert_client_item_string,
-        insert_decoded_ids_by_encoded_hex, insert_item_hex, item_key, item_observation, value_u32,
-        value_u32_array,
-    },
+    capture::{ItemCapture, ItemKey, ItemObservation, canonical_encoded_hex},
     text::{
-        GENERIC_ITEM_NAME_TEXT_ID, asyncdecode_item_ids_from_hex, clean_item_name,
+        GENERIC_ITEM_NAME_TEXT_ID, asyncdecode_item_ids_from_hex,
         decode_description_fields_from_exact_ids, decode_encoded_description_fields,
-        decode_encoded_name_fields, decode_name_fields_from_exact_ids, encoded_name_ids_from_hex,
-        flat_runtime_text_fields, is_invalid_label,
+        decode_encoded_name_fields, decode_name_fields_from_exact_ids, encoded_text_ids_from_hex,
+        flat_runtime_name_fields, flat_runtime_text_fields, is_invalid_label,
     },
 };
+
+#[cfg(test)]
+use super::capture::read_item_capture;
 
 impl ItemTextLookup {
     fn name_fields_for(&self, observation: &ItemObservation) -> BTreeMap<String, String> {
@@ -110,7 +109,10 @@ impl ItemTextLookup {
             .map(|names| {
                 names
                     .iter()
-                    .map(|(code, name)| (format!("name_{code}"), name.clone()))
+                    .filter_map(|(code, name)| {
+                        let name = clean_display_text(name);
+                        (!name.is_empty()).then(|| (format!("name_{code}"), name))
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -124,7 +126,7 @@ impl ItemTextLookup {
         if let Some(ids) = observation
             .enc_name_hex
             .as_deref()
-            .and_then(encoded_name_ids_from_hex)
+            .and_then(encoded_text_ids_from_hex)
             && let Some(names) = decode_name_fields_from_exact_ids(&ids, &self.by_text_id)
             && multilingual_names_match(&names, official_name)
         {
@@ -137,10 +139,68 @@ impl ItemTextLookup {
             return Some(self.with_model_file_names(observation, names));
         }
 
-        let names =
-            self.with_model_file_names(observation, self.fallback_name_fields_for(observation));
+        let names = self.fallback_name_fields_for(observation);
         multilingual_names_match(&names, official_name).then_some(names)
     }
+}
+
+fn item_value<'a, V>(
+    values: &'a BTreeMap<ItemKey, V>,
+    item_id: u32,
+    observation: &ItemObservation,
+) -> Option<&'a V> {
+    values
+        .get(&(
+            item_id,
+            Some(observation.model_id),
+            Some(observation.model_file_id),
+        ))
+        .or_else(|| values.get(&(item_id, None, None)))
+}
+
+fn unique_item_value<'a>(
+    values: &'a BTreeMap<ItemKey, String>,
+    item_ids: &BTreeSet<u32>,
+    observation: &ItemObservation,
+) -> Option<&'a String> {
+    let mut matching = item_ids
+        .iter()
+        .filter_map(|item_id| item_value(values, *item_id, observation));
+    let first = matching.next()?;
+    let canonical = canonical_encoded_hex(first);
+    matching
+        .all(|value| canonical_encoded_hex(value).as_str() == canonical)
+        .then_some(first)
+}
+
+fn merged_item_strings(
+    values: &BTreeMap<ItemKey, BTreeMap<String, String>>,
+    item_ids: &BTreeSet<u32>,
+    observation: &ItemObservation,
+) -> BTreeMap<String, String> {
+    let mut merged = BTreeMap::new();
+    let mut conflicts = BTreeSet::new();
+    for strings in item_ids
+        .iter()
+        .filter_map(|item_id| item_value(values, *item_id, observation))
+    {
+        for (code, text) in strings {
+            if conflicts.contains(code) {
+                continue;
+            }
+            match merged.entry(code.clone()) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(text.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(entry) if entry.get() == text => {}
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    entry.remove();
+                    conflicts.insert(code.clone());
+                }
+            }
+        }
+    }
+    merged
 }
 
 #[derive(Debug, Serialize)]
@@ -265,130 +325,43 @@ pub(super) fn write_from_capture_for_test(
     write_from_capture(packet_log_path, name_lookup, out_path, true)
 }
 
+#[cfg(test)]
 pub(super) fn write_from_capture(
     packet_log_path: &Path,
     name_lookup: &ItemTextLookup,
     out_path: &Path,
     use_client_strings: bool,
 ) -> Result<()> {
-    let mut decoded_item_rows = 0_usize;
-    let mut observations = BTreeMap::<ItemObservation, BTreeSet<u32>>::new();
-    let mut client_names_by_item = BTreeMap::<ItemKey, BTreeMap<String, String>>::new();
-    let mut client_descriptions_by_item = BTreeMap::<ItemKey, BTreeMap<String, String>>::new();
-    let mut client_name_rows = 0_usize;
-    let mut client_description_rows = 0_usize;
-    let mut runtime_string_rows = 0_usize;
-    let mut decoded_ids_by_encoded_hex = BTreeMap::<String, Vec<u32>>::new();
-    let mut runtime_desc_hex_by_item = BTreeMap::<ItemKey, String>::new();
-    let mut runtime_name_hex_by_item = BTreeMap::<ItemKey, String>::new();
-    let mut runtime_desc_availability_by_item = BTreeMap::<ItemKey, bool>::new();
+    let capture = read_item_capture(packet_log_path, use_client_strings)?;
+    write_catalog(capture, name_lookup, out_path)
+}
 
-    for_each_jsonl_row(packet_log_path, |_, row: serde_json::Value| {
-        match row.get("kind").and_then(|kind| kind.as_str()) {
-            Some("text_decode_ids") => {
-                if let (Some(hex), Some(ids)) = (
-                    row.get("encoded_hex").and_then(|value| value.as_str()),
-                    value_u32_array(&row, "decoded_ids"),
-                ) {
-                    decoded_ids_by_encoded_hex
-                        .entry(canonical_encoded_hex(hex))
-                        .or_insert(ids);
-                }
-                return Ok(());
-            }
-            Some("decoded_name") => {
-                if use_client_strings
-                    && insert_client_item_string(&row, "name", "name", &mut client_names_by_item)
-                {
-                    client_name_rows += 1;
-                }
-                return Ok(());
-            }
-            Some("decoded_description") => {
-                if use_client_strings
-                    && insert_client_item_string(
-                        &row,
-                        "description",
-                        "description",
-                        &mut client_descriptions_by_item,
-                    )
-                {
-                    client_description_rows += 1;
-                }
-                return Ok(());
-            }
-            Some("runtime_item_strings") => {
-                runtime_string_rows += 1;
-                insert_item_hex(
-                    &row,
-                    &["desc_enc_hex", "description_enc_hex"],
-                    &mut runtime_desc_hex_by_item,
-                );
-                insert_item_hex(
-                    &row,
-                    &["complete_name_enc_hex"],
-                    &mut runtime_name_hex_by_item,
-                );
-                if let Some(key) = item_key(&row) {
-                    let available = row
-                        .get("desc_complete")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or_else(|| {
-                            row.get("desc_enc_hex")
-                                .or_else(|| row.get("description_enc_hex"))
-                                .and_then(serde_json::Value::as_str)
-                                .is_some_and(|hex| !hex.is_empty())
-                        });
-                    runtime_desc_availability_by_item
-                        .entry(key)
-                        .and_modify(|current| *current |= available)
-                        .or_insert(available);
-                }
-                insert_decoded_ids_by_encoded_hex(&mut decoded_ids_by_encoded_hex, &row);
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        let decoded = row.get("decoded").unwrap_or(&row);
-        if use_client_strings {
-            if insert_client_item_string(decoded, "decoded_name", "name", &mut client_names_by_item)
-            {
-                client_name_rows += 1;
-            }
-            if insert_client_item_string(
-                decoded,
-                "decoded_description",
-                "description",
-                &mut client_descriptions_by_item,
-            ) {
-                client_description_rows += 1;
-            }
-        }
-        insert_decoded_ids_by_encoded_hex(&mut decoded_ids_by_encoded_hex, decoded);
-        let Some(observation) = item_observation(decoded) else {
-            return Ok(());
-        };
-        decoded_item_rows += 1;
-        observations
-            .entry(observation)
-            .or_default()
-            .extend(value_u32(decoded, "item_id"));
-        Ok(())
-    })?;
+pub(super) fn write_catalog(
+    capture: ItemCapture,
+    name_lookup: &ItemTextLookup,
+    out_path: &Path,
+) -> Result<()> {
+    let ItemCapture {
+        decoded_item_rows,
+        observations,
+        client_names_by_item,
+        client_descriptions_by_item,
+        client_name_rows,
+        client_description_rows,
+        runtime_string_rows,
+        decoded_ids_by_encoded_hex,
+        runtime_desc_hex_by_item,
+        runtime_name_hex_by_item,
+        runtime_desc_availability_by_item,
+        ..
+    } = capture;
 
     let mut items_by_model = BTreeMap::<(u32, u32), Vec<ExtractedItemVariant>>::new();
     for (observation, item_ids) in observations {
         let runtime_description_available = item_ids
             .iter()
             .filter_map(|item_id| {
-                runtime_desc_availability_by_item
-                    .get(&(
-                        *item_id,
-                        Some(observation.model_id),
-                        Some(observation.model_file_id),
-                    ))
-                    .or_else(|| runtime_desc_availability_by_item.get(&(*item_id, None, None)))
+                item_value(&runtime_desc_availability_by_item, *item_id, &observation)
             })
             .copied()
             .reduce(|available, next| available || next);
@@ -402,15 +375,8 @@ pub(super) fn write_from_capture(
             price: observation.price,
             runtime_description_available,
             strings: {
-                let runtime_name_hex = item_ids.iter().find_map(|item_id| {
-                    runtime_name_hex_by_item
-                        .get(&(
-                            *item_id,
-                            Some(observation.model_id),
-                            Some(observation.model_file_id),
-                        ))
-                        .or_else(|| runtime_name_hex_by_item.get(&(*item_id, None, None)))
-                });
+                let runtime_name_hex =
+                    unique_item_value(&runtime_name_hex_by_item, &item_ids, &observation);
                 let local_names = name_lookup.with_model_file_names(
                     &observation,
                     observation
@@ -441,34 +407,18 @@ pub(super) fn write_from_capture(
                         })
                         .unwrap_or_else(|| name_lookup.name_fields_for(&observation)),
                 );
-                let mut strings = item_ids
-                    .iter()
-                    .find_map(|item_id| {
-                        client_names_by_item
-                            .get(&(
-                                *item_id,
-                                Some(observation.model_id),
-                                Some(observation.model_file_id),
-                            ))
-                            .or_else(|| client_names_by_item.get(&(*item_id, None, None)))
-                            .map(|client_names| {
-                                client_runtime_name_fields(client_names, &observation, name_lookup)
-                            })
-                            .filter(|names| !names.is_empty())
-                    })
-                    .unwrap_or(local_names);
-                let desc_hex = item_ids
-                    .iter()
-                    .find_map(|item_id| {
-                        runtime_desc_hex_by_item
-                            .get(&(
-                                *item_id,
-                                Some(observation.model_id),
-                                Some(observation.model_file_id),
-                            ))
-                            .or_else(|| runtime_desc_hex_by_item.get(&(*item_id, None, None)))
-                    })
-                    .or(observation.desc_enc_hex.as_ref());
+                let client_names =
+                    merged_item_strings(&client_names_by_item, &item_ids, &observation);
+                let client_names =
+                    client_runtime_name_fields(&client_names, &observation, name_lookup);
+                let mut strings = if client_names.is_empty() {
+                    local_names
+                } else {
+                    client_names
+                };
+                let desc_hex =
+                    unique_item_value(&runtime_desc_hex_by_item, &item_ids, &observation)
+                        .or(observation.desc_enc_hex.as_ref());
                 let local_descriptions = desc_hex
                     .and_then(|hex| decoded_ids_by_encoded_hex.get(&canonical_encoded_hex(hex)))
                     .and_then(|ids| {
@@ -481,20 +431,14 @@ pub(super) fn write_from_capture(
                         )
                     })
                     .unwrap_or_default();
-                let descriptions = item_ids
-                    .iter()
-                    .find_map(|item_id| {
-                        client_descriptions_by_item
-                            .get(&(
-                                *item_id,
-                                Some(observation.model_id),
-                                Some(observation.model_file_id),
-                            ))
-                            .or_else(|| client_descriptions_by_item.get(&(*item_id, None, None)))
-                            .map(client_runtime_description_fields)
-                            .filter(|descriptions| !descriptions.is_empty())
-                    })
-                    .unwrap_or(local_descriptions);
+                let client_descriptions =
+                    merged_item_strings(&client_descriptions_by_item, &item_ids, &observation);
+                let client_descriptions = client_runtime_description_fields(&client_descriptions);
+                let descriptions = if client_descriptions.is_empty() {
+                    local_descriptions
+                } else {
+                    client_descriptions
+                };
                 strings.extend(descriptions);
                 strings
             },
@@ -586,18 +530,6 @@ pub(super) fn multilingual_names_match(
 
 pub(super) fn localized_name_score(names: &BTreeMap<String, String>) -> usize {
     valid_unique_texts(names).len()
-}
-
-pub(super) fn flat_runtime_name_fields(
-    names: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    names
-        .iter()
-        .filter_map(|(code, text)| {
-            let text = clean_item_name(text);
-            (!text.is_empty() && !is_invalid_label(&text)).then(|| (format!("name_{code}"), text))
-        })
-        .collect()
 }
 
 pub(super) fn flat_runtime_description_fields(

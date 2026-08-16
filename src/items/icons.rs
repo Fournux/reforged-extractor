@@ -2,14 +2,10 @@ use anyhow::{Context, Result, bail};
 use std::{collections::BTreeSet, fs, path::Path};
 
 use crate::{
-    dat::{DatArchive, lookup_mft_stream_entry_from_base},
+    dat::{DatArchive, cache_entry_relative_path, lookup_mft_stream_entry_from_base},
     icon_payload::decode_icon_payload,
     io_util::write_json,
 };
-
-fn relative_entry_path(mft_entry_index: u32) -> String {
-    format!("{:03}/{:06}.bin", mft_entry_index / 1000, mft_entry_index)
-}
 
 #[cfg(test)]
 pub(crate) use crate::icon_payload::find_inline_atex_payload;
@@ -83,10 +79,10 @@ fn export_model_file_icon_payload(
         "stream_id": context.stream_id,
         "base_mft_entry_index": context.base_entry.index,
         "base_hashes": context.base_hashes,
-        "base_relative_path": relative_entry_path(context.base_entry.index),
+        "base_relative_path": cache_entry_relative_path(context.base_entry.index),
         "image_mft_entry_index": context.image_entry.index,
         "image_hashes": context.image_hashes,
-        "image_relative_path": relative_entry_path(context.image_entry.index),
+        "image_relative_path": cache_entry_relative_path(context.image_entry.index),
         "kind": payload.kind(),
         "width": payload.width(),
         "height": payload.height(),
@@ -185,10 +181,7 @@ pub(crate) fn export_model_file_icons(
 
     for model_file_id in model_file_ids {
         scanned_model_file_ids += 1;
-        let Some(base_mft_index) = archive.mft_index_for_file_id(model_file_id) else {
-            continue;
-        };
-        let Some(base_entry) = archive.entry(base_mft_index) else {
+        let Some(base_entry) = archive.entry_for_file_id(model_file_id) else {
             missing_mft_entries += 1;
             continue;
         };
