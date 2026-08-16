@@ -158,22 +158,12 @@ pub(crate) fn extract_items(
             .with_context(|| format!("extracting item model icons from {}", snapshot.display()))?;
     }
     if let Some(packet_log) = packet_log.as_deref() {
-        let text_inputs = items::packet_log_text_inputs(packet_log, use_client_strings)
-            .with_context(|| format!("reading item text inputs from {}", packet_log.display()))?;
-        let names = items::runtime_item_text_lookup_with_compact_seeds(
+        items::extract_catalog(
             snapshot,
-            &text_inputs.name_ids,
-            &text_inputs.compact_seeds,
-            &text_inputs.decoded_records,
-        )
-        .with_context(|| format!("resolving item names from {}", snapshot.display()))?;
-        items::export_detected_items_from_packet_log_with_client_strings(
             packet_log,
-            &names,
             &out_dir.join("items.json"),
             use_client_strings,
-        )
-        .with_context(|| format!("extracting runtime items from {}", packet_log.display()))?;
+        )?;
     }
     if let Some(report) = capture_report {
         write_json(

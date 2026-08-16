@@ -11,12 +11,10 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::{BufRead, BufReader},
     path::Path,
 };
 
-use crate::io_util::write_json;
+use crate::{capture::for_each_jsonl_row, io_util::write_json};
 
 #[derive(Debug, Deserialize)]
 struct PacketRow {
@@ -195,7 +193,6 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
     out_dir: &Path,
     localized_npc_names: &BTreeMap<Vec<u16>, BTreeMap<String, String>>,
 ) -> Result<()> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut current_maps = BTreeMap::<u64, u32>::new();
     let mut agent_npcs = BTreeMap::<(u64, u32), ServiceNpcKey>::new();
     let mut agent_names = BTreeMap::<(u64, u32), Vec<u16>>::new();
@@ -205,14 +202,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
     let mut crafter_products = BTreeMap::<ServiceNpcKey, BTreeSet<ItemCatalogEntry>>::new();
     let mut trainer_skills = BTreeMap::<ServiceNpcKey, BTreeMap<u32, BTreeSet<u32>>>::new();
 
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("reading {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let row: PacketRow = serde_json::from_str(&line)
-            .with_context(|| format!("parsing {} line {}", path.display(), line_index + 1))?;
+    for_each_jsonl_row(path, |line_number, row: PacketRow| {
         if row.kind == "world_packet" {
             observe_npc_packet(
                 &row,
@@ -221,13 +211,13 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
                 &mut agent_names,
                 &mut service_name_words,
             )?;
-            continue;
+            return Ok(());
         }
         if !matches!(
             row.kind.as_str(),
             "collector_offers" | "merchant_items" | "crafter_products" | "skill_trainer_skills"
         ) {
-            continue;
+            return Ok(());
         }
         let service_npc = agent_npcs
             .get(&(row.session_id, row.merchant_agent_id))
@@ -236,7 +226,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
                 format!(
                     "{} line {} {} agent {} has no captured spawn position",
                     path.display(),
-                    line_index + 1,
+                    line_number,
                     row.kind,
                     row.merchant_agent_id
                 )
@@ -249,7 +239,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
             bail!(
                 "{} line {} {} agent {} resolves to NPC model {} but captured row says {}",
                 path.display(),
-                line_index + 1,
+                line_number,
                 row.kind,
                 row.merchant_agent_id,
                 service_npc.npc_model_id,
@@ -266,7 +256,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
             let Some(required_item) = row.required_item.filter(|item| {
                 item.model_id != 0 && (1..=u32::from(u16::MAX)).contains(&item.quantity)
             }) else {
-                continue;
+                return Ok(());
             };
             let Some(rewards) = row
                 .rewards
@@ -280,7 +270,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
                 })
                 .collect::<Option<Vec<_>>>()
             else {
-                continue;
+                return Ok(());
             };
             collector_offers
                 .entry(service_npc)
@@ -289,7 +279,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
                     required_item,
                     rewards,
                 });
-            continue;
+            return Ok(());
         }
 
         if !row.capture_complete
@@ -297,7 +287,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
             || row.entry_count != row.captured_entry_count
             || row.entry_count != row.entries.len()
         {
-            continue;
+            return Ok(());
         }
         match (row.kind.as_str(), row.transaction_service) {
             ("merchant_items", 1) | ("crafter_products", 3) => {
@@ -315,7 +305,7 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
                     })
                     .collect::<Option<Vec<_>>>()
                 else {
-                    continue;
+                    return Ok(());
                 };
                 let catalog = if row.transaction_service == 1 {
                     &mut merchant_items
@@ -338,7 +328,8 @@ pub(crate) fn extract_vendor_catalogs_from_packet_log(
             }
             _ => {}
         }
-    }
+        Ok(())
+    })?;
 
     let collectors = collector_offers
         .into_iter()

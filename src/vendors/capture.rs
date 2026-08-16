@@ -1,36 +1,28 @@
+use crate::capture::for_each_jsonl_row;
 use anyhow::{Context, Result, bail};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::{BufRead, BufReader},
     path::Path,
 };
 
 use super::{PacketRow, ServiceNpcKey};
 
 pub(crate) fn captured_npc_name_words(path: &Path) -> Result<BTreeSet<Vec<u16>>> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut names = BTreeSet::new();
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("reading {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let row: PacketRow = serde_json::from_str(&line)
-            .with_context(|| format!("parsing {} line {}", path.display(), line_index + 1))?;
+    for_each_jsonl_row(path, |line_number, row: PacketRow| {
         if row.kind == "world_packet" && row.header == 0x009b {
             let words = fixed_words(&packet_bytes(&row)?, 8, 32);
             if words.is_empty() {
                 bail!(
                     "{} line {} AGENT_UPDATE_NPC_NAME contains an empty name",
                     path.display(),
-                    line_index + 1
+                    line_number
                 );
             }
             names.insert(words);
         }
-    }
+        Ok(())
+    })?;
     Ok(names)
 }
 

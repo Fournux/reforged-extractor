@@ -1,5 +1,5 @@
 use anyhow::{Context, bail};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -227,9 +227,9 @@ impl CaptureManifest {
     }
 }
 
-pub(crate) fn for_each_jsonl_value(
+pub(crate) fn for_each_jsonl_row<T: DeserializeOwned>(
     path: &Path,
-    mut visit: impl FnMut(usize, Value) -> anyhow::Result<()>,
+    mut visit: impl FnMut(usize, T) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
@@ -240,9 +240,9 @@ pub(crate) fn for_each_jsonl_value(
         if line.is_empty() {
             continue;
         }
-        let value = serde_json::from_str(line)
+        let row = serde_json::from_str(line)
             .with_context(|| format!("parsing {} line {line_number}", path.display()))?;
-        visit(line_number, value)
+        visit(line_number, row)
             .with_context(|| format!("processing {} line {line_number}", path.display()))?;
     }
     Ok(())
@@ -267,7 +267,7 @@ pub(crate) fn analyze_capture(
     domain: CaptureDomain,
 ) -> anyhow::Result<CaptureIntegrityReport> {
     let mut sessions = BTreeMap::<u64, SessionCaptureState>::new();
-    for_each_jsonl_value(path, |line_number, value| {
+    for_each_jsonl_row(path, |line_number, value: Value| {
         let kind = value.get("kind").and_then(Value::as_str);
         let session_id = value
             .get("session_id")
@@ -626,6 +626,19 @@ mod tests {
             .ensure_verified(&path)
             .expect_err("obsolete capture format must fail");
         assert!(format!("{error:#}").contains("expected version 5"));
+        fs::remove_file(path)?;
+        Ok(())
+    }
+    #[test]
+    fn jsonl_reader_reports_physical_line_on_decode_error() -> anyhow::Result<()> {
+        let path = temp_log("line-context");
+        fs::write(&path, "\n{\"value\":1}\n{\"value\":\"invalid\"}")?;
+
+        let error = for_each_jsonl_row::<BTreeMap<String, u32>>(&path, |_, _| Ok(()))
+            .expect_err("invalid typed row must fail");
+        let message = format!("{error:#}");
+        assert!(message.contains(&path.display().to_string()));
+        assert!(message.contains("line 3"));
         fs::remove_file(path)?;
         Ok(())
     }

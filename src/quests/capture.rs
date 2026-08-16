@@ -1,46 +1,39 @@
 use super::*;
+use crate::capture::for_each_jsonl_row;
 
 const REWARD_DIALOG_LIFETIME_MS: u128 = 30 * 60 * 1_000;
 
 pub(super) fn read_reward_item_models(path: &Path) -> Result<RewardItemModelLookup> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut lookup = RewardItemModelLookup::default();
     let mut candidates = BTreeMap::<(u32, u64), BTreeMap<u32, BTreeSet<u32>>>::new();
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("reading {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: serde_json::Value = serde_json::from_str(&line)
-            .with_context(|| format!("parsing {} line {}", path.display(), line_index + 1))?;
+    for_each_jsonl_row(path, |_, value: serde_json::Value| {
         let Some(model_id) = value
             .get("model_id")
             .and_then(|value| value.as_u64())
             .and_then(|value| u32::try_from(value).ok())
             .filter(|model_id| !matches!(*model_id, 0 | u32::MAX))
         else {
-            continue;
+            return Ok(());
         };
         let Some(name_text_id) = value
             .get("name_text_id")
             .and_then(|value| value.as_u64())
             .and_then(|value| u32::try_from(value).ok())
         else {
-            continue;
+            return Ok(());
         };
         let Some(words) = value
             .get("enc_name_hex")
             .and_then(|value| value.as_str())
             .and_then(encoded_words_from_hex)
         else {
-            continue;
+            return Ok(());
         };
         let Some(name) = text_references(&words)
             .into_iter()
             .find(|text_ref| text_ref.id == name_text_id)
         else {
-            continue;
+            return Ok(());
         };
         let model_file_id = value
             .get("model_file_id")
@@ -75,7 +68,8 @@ pub(super) fn read_reward_item_models(path: &Path) -> Result<RewardItemModelLook
                     },
                 ));
         }
-    }
+        Ok(())
+    })?;
     lookup.unique = candidates
         .into_iter()
         .filter_map(|(key, models)| {
@@ -95,7 +89,6 @@ pub(super) fn read_reward_item_models(path: &Path) -> Result<RewardItemModelLook
 }
 
 pub(super) fn read_quest_accumulators(path: &Path) -> Result<BTreeMap<u32, QuestAccumulator>> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut quests = BTreeMap::<u32, QuestAccumulator>::new();
     let mut agents = BTreeMap::<(u64, u32), u32>::new();
     let mut npc_names = BTreeMap::<u32, Vec<u16>>::new();
@@ -103,14 +96,7 @@ pub(super) fn read_quest_accumulators(path: &Path) -> Result<BTreeMap<u32, Quest
     let mut current_maps = BTreeMap::<u64, u32>::new();
     let mut dialogs = Vec::new();
     let mut open_reward_dialogs = BTreeMap::<(u64, u32), u128>::new();
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("reading {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: serde_json::Value = serde_json::from_str(&line)
-            .with_context(|| format!("parsing {} line {}", path.display(), line_index + 1))?;
+    for_each_jsonl_row(path, |line_number, value: serde_json::Value| {
         let kind = value.get("kind").and_then(|kind| kind.as_str());
         if matches!(kind, Some("quest_status" | "status"))
             && value.get("status").and_then(|status| status.as_str())
@@ -124,19 +110,19 @@ pub(super) fn read_quest_accumulators(path: &Path) -> Result<BTreeMap<u32, Quest
             dialog_senders.remove(&session_id);
             open_reward_dialogs.retain(|(session, _), _| *session != session_id);
             current_maps.remove(&session_id);
-            continue;
+            return Ok(());
         }
         if kind != Some("world_packet") {
-            continue;
+            return Ok(());
         }
         let packet: WorldPacketRow = serde_json::from_value(value)
-            .with_context(|| format!("decoding {} line {}", path.display(), line_index + 1))?;
+            .with_context(|| format!("decoding {} line {line_number}", path.display()))?;
         if let Some(row) = parse_quest_packet(&packet).with_context(|| {
             format!(
                 "decoding quest packet 0x{:04X} at {} line {}",
                 packet.header,
                 path.display(),
-                line_index + 1
+                line_number
             )
         })? {
             let quest_id = row.quest_id;
@@ -220,7 +206,8 @@ pub(super) fn read_quest_accumulators(path: &Path) -> Result<BTreeMap<u32, Quest
             }
             _ => {}
         }
-    }
+        Ok(())
+    })?;
     for mut dialog in dialogs {
         dialog.npc_encoded = dialog
             .npc_model_id

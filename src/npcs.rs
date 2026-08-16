@@ -2,12 +2,11 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::{BufRead, BufReader},
     path::Path,
 };
 
 use crate::{
+    capture::for_each_jsonl_row,
     io_util::write_json,
     text::{
         catalog::{LocalizedTextCatalog, resolve_localized_text_catalog},
@@ -209,32 +208,24 @@ fn resolve_npc_text_catalog(
 }
 
 fn read_npc_accumulators(path: &Path) -> Result<BTreeMap<u32, NpcAccumulator>> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut npcs = BTreeMap::<u32, NpcAccumulator>::new();
     let mut current_maps = BTreeMap::<u64, u32>::new();
     let mut agent_models = BTreeMap::<(u64, u32), u32>::new();
 
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("reading {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let row: PacketRow = serde_json::from_str(&line)
-            .with_context(|| format!("parsing {} line {}", path.display(), line_index + 1))?;
+    for_each_jsonl_row(path, |_, row: PacketRow| {
         if row.kind == "collector_offers" {
             if row.transaction_service != 2
                 || row.reward_count == 0
                 || row.reward_count != row.captured_reward_count
                 || row.reward_count != row.rewards.len()
             {
-                continue;
+                return Ok(());
             }
             let Some(required) = row
                 .required_item
                 .filter(|required| required.model_id != 0 && required.quantity != 0)
             else {
-                continue;
+                return Ok(());
             };
             let Some(rewards) = row
                 .rewards
@@ -248,7 +239,7 @@ fn read_npc_accumulators(path: &Path) -> Result<BTreeMap<u32, NpcAccumulator>> {
                 })
                 .collect::<Option<Vec<_>>>()
             else {
-                continue;
+                return Ok(());
             };
             let Some(npc_model_id) =
                 row.npc_model_id
@@ -259,7 +250,7 @@ fn read_npc_accumulators(path: &Path) -> Result<BTreeMap<u32, NpcAccumulator>> {
                             .copied()
                     })
             else {
-                continue;
+                return Ok(());
             };
             let npc = npcs.entry(npc_model_id).or_default();
             if let Some(map_id) = current_maps.get(&row.session_id) {
@@ -270,10 +261,10 @@ fn read_npc_accumulators(path: &Path) -> Result<BTreeMap<u32, NpcAccumulator>> {
                 required_item_quantity: required.quantity,
                 rewards,
             });
-            continue;
+            return Ok(());
         }
         if row.kind != "world_packet" {
-            continue;
+            return Ok(());
         }
         match row.header {
             0x0199 => {
@@ -344,7 +335,8 @@ fn read_npc_accumulators(path: &Path) -> Result<BTreeMap<u32, NpcAccumulator>> {
             }
             _ => {}
         }
-    }
+        Ok(())
+    })?;
     Ok(npcs)
 }
 

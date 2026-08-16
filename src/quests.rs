@@ -10,8 +10,6 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::{BufRead, BufReader},
     path::Path,
 };
 

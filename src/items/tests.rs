@@ -1,6 +1,15 @@
-use super::*;
-use crate::tests::TestDir;
-use std::fs;
+use super::{
+    archive::ItemTextLookup,
+    capture::{packet_log_decoded_text_records, packet_log_name_ids, packet_log_name_seeds},
+    catalog::{write_from_capture, write_from_capture_for_test},
+    text::{asyncdecode_item_ids_for_test, encoded_value_spans_for_test, encoded_values_for_test},
+};
+use crate::{tests::TestDir, text::records};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File},
+    path::Path,
+};
 
 #[test]
 fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> {
@@ -17,7 +26,7 @@ fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> 
 
     assert_eq!(packet_log_name_ids(&packet_log)?, BTreeSet::from([8360]));
 
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             8360,
@@ -29,7 +38,7 @@ fn packet_log_items_json_is_flat_scalar_rows_with_names() -> anyhow::Result<()> 
         by_model_file_id: BTreeMap::new(),
     };
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let items = json
         .as_array()
@@ -300,7 +309,7 @@ fn packet_log_items_json_deduplicates_model_file_variant_and_prefers_named_row()
             "{\"item_id\":2,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32,\"name_id\":8360}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             8360,
@@ -310,7 +319,7 @@ fn packet_log_items_json_deduplicates_model_file_variant_and_prefers_named_row()
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let items = json.as_array().unwrap();
 
@@ -334,7 +343,7 @@ fn packet_log_items_json_keeps_distinct_model_file_variants() -> anyhow::Result<
             "{\"item_id\":2,\"model_file_id\":222,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":32,\"name_id\":200}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -350,7 +359,7 @@ fn packet_log_items_json_keeps_distinct_model_file_variants() -> anyhow::Result<
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let items = json.as_array().unwrap();
 
@@ -370,7 +379,7 @@ fn packet_log_names_can_fall_back_to_model_file_table() -> anyhow::Result<()> {
         &packet_log,
         "{\"item_id\":1,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::new(),
         by_model_file_id: BTreeMap::from([(
@@ -380,7 +389,7 @@ fn packet_log_names_can_fall_back_to_model_file_table() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Black Dye"));
@@ -395,7 +404,7 @@ fn packet_log_exact_name_ids_fill_missing_languages_from_model_file_table() -> a
         &packet_log,
         "{\"item_id\":1,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_id\":100,\"enc_name_hex\":\"64010000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             100,
@@ -411,7 +420,7 @@ fn packet_log_exact_name_ids_fill_missing_languages_from_model_file_table() -> a
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Black Dye"));
@@ -427,7 +436,7 @@ fn compact_item_row_resolves_name_and_description_text_ids() -> anyhow::Result<(
         &packet_log,
         "{\"model_id\":32,\"model_file_id\":111926,\"item_type\":3,\"materials\":0,\"name_text_id\":100,\"enc_name_hex\":\"64010000\",\"desc_enc_hex\":\"64010000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             100,
@@ -437,7 +446,7 @@ fn compact_item_row_resolves_name_and_description_text_ids() -> anyhow::Result<(
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let item = json[0].as_object().unwrap();
 
@@ -464,7 +473,7 @@ fn packet_log_encoded_name_hex_expands_template_names() -> anyhow::Result<()> {
         BTreeSet::from([100, 200])
     );
 
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -486,7 +495,7 @@ fn packet_log_encoded_name_hex_expands_template_names() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Black Dye"));
@@ -503,7 +512,7 @@ fn python_itemgeneral_rows_match_runtime_export_schema() -> anyhow::Result<()> {
         &packet_log,
         "{\"item_id\":40,\"model_file_id\":2147595574,\"type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"quantity\":1,\"decoded_name\":\"Teinture noire\",\"enc_name_hex\":\"a82157d18fb56f160000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             8360,
@@ -516,7 +525,7 @@ fn python_itemgeneral_rows_match_runtime_export_schema() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["model_file_id"].as_u64(), Some(111926));
@@ -535,7 +544,7 @@ fn packet_log_desc_enc_hex_expands_description_templates() -> anyhow::Result<()>
         "{\"item_id\":2,\"model_file_id\":111926,\"item_type\":3,\"extra_id\":0,\"materials\":0,\"interaction\":536875008,\"price\":5,\"model_id\":32,\"name_id\":100,\"enc_name_hex\":\"64010000\",\"desc_enc_hex\":\"2c0290020000\"}\n",
     )?;
     assert!(packet_log_name_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -561,7 +570,7 @@ fn packet_log_desc_enc_hex_expands_description_templates() -> anyhow::Result<()>
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(
@@ -587,7 +596,7 @@ fn runtime_item_strings_attach_description_without_extra_item_row() -> anyhow::R
         ),
     )?;
     assert!(packet_log_name_ids(&packet_log)?.is_superset(&BTreeSet::from([100, 300, 400])));
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -607,7 +616,7 @@ fn runtime_item_strings_attach_description_without_extra_item_row() -> anyhow::R
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let items = json.as_array().unwrap();
 
@@ -636,7 +645,7 @@ fn runtime_item_strings_complete_name_can_name_item() -> anyhow::Result<()> {
             "{\"kind\":\"runtime_item_strings\",\"item_id\":2,\"model_id\":32,\"model_file_id\":111926,\"desc_complete\":false,\"complete_name_enc_hex\":\"2c0264010000\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -652,7 +661,7 @@ fn runtime_item_strings_complete_name_can_name_item() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let item = json.as_array().unwrap().first().unwrap();
 
@@ -673,7 +682,7 @@ fn text_decode_ids_match_runtime_hex_with_extra_null() -> anyhow::Result<()> {
             "{\"kind\":\"text_decode_ids\",\"language_id\":0,\"encoded_hex\":\"aaaa0000\",\"decoded_ids\":[100]}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             100,
@@ -683,7 +692,7 @@ fn text_decode_ids_match_runtime_hex_with_extra_null() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let item = json.as_array().unwrap().first().unwrap();
 
@@ -703,7 +712,7 @@ fn decoded_description_rows_attach_multilingual_descriptions() -> anyhow::Result
             "{\"kind\":\"decoded_description\",\"item_id\":2,\"model_id\":32,\"model_file_id\":111926,\"lang\":\"fr\",\"description\":\"Utilisation : ouvre un nécessaire.\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             100,
@@ -713,7 +722,7 @@ fn decoded_description_rows_attach_multilingual_descriptions() -> anyhow::Result
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let item = json.as_array().unwrap().first().unwrap();
 
@@ -733,7 +742,7 @@ fn packet_log_merged_single_decoded_id_can_name_item() -> anyhow::Result<()> {
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\",\"decoded_ids\":[9396]}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             9396,
@@ -743,7 +752,7 @@ fn packet_log_merged_single_decoded_id_can_name_item() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Sceptre luminescent"));
@@ -758,7 +767,7 @@ fn unresolved_encoded_name_hex_does_not_use_unsafe_local_fallback() -> anyhow::R
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             9396,
@@ -768,7 +777,7 @@ fn unresolved_encoded_name_hex_does_not_use_unsafe_local_fallback() -> anyhow::R
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     let item = json[0].as_object().unwrap();
@@ -785,7 +794,7 @@ fn unresolved_encoded_name_hex_can_use_model_file_fallback() -> anyhow::Result<(
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             9396,
@@ -798,7 +807,7 @@ fn unresolved_encoded_name_hex_can_use_model_file_fallback() -> anyhow::Result<(
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(
@@ -816,7 +825,7 @@ fn resolved_text_id_can_name_compact_item() -> anyhow::Result<()> {
         &packet_log,
         "{\"item_id\":6508,\"model_file_id\":152714,\"item_type\":22,\"extra_id\":0,\"materials\":0,\"interaction\":0,\"price\":0,\"model_id\":6508,\"name_id\":9396,\"enc_name_hex\":\"b425cfe100ef786f0000\"}\n",
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::from([9396]),
         by_text_id: BTreeMap::from([(
             9396,
@@ -826,7 +835,7 @@ fn resolved_text_id_can_name_compact_item() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Sceptre luminescent"));
@@ -851,7 +860,7 @@ fn packet_log_uses_official_multilingual_names_for_known_itemgeneral_samples() -
             "{\"kind\":\"decoded_name\",\"item_id\":56,\"lang\":\"de\",\"name\":\"Glitzerstaubhaufen\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([
             (
@@ -867,7 +876,7 @@ fn packet_log_uses_official_multilingual_names_for_known_itemgeneral_samples() -
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let by_model_id = json
         .as_array()
@@ -917,7 +926,7 @@ fn official_decoded_names_override_unsafe_local_guesses() -> anyhow::Result<()> 
             "{\"kind\":\"decoded_name\",\"item_id\":109,\"lang\":\"fr\",\"name\":\"Corne de gardien\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             21992,
@@ -927,7 +936,7 @@ fn official_decoded_names_override_unsafe_local_guesses() -> anyhow::Result<()> 
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name"].as_str(), Some("Corne de gardien"));
@@ -946,7 +955,7 @@ fn client_decoded_names_are_opt_in() -> anyhow::Result<()> {
             "{\"kind\":\"decoded_name\",\"item_id\":1,\"lang\":\"en\",\"name\":\"Client Name\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             100,
@@ -956,23 +965,13 @@ fn client_decoded_names_are_opt_in() -> anyhow::Result<()> {
     };
 
     let dat_only = temp.path().join("dat-only.json");
-    export_detected_items_from_packet_log_with_client_strings(
-        &packet_log,
-        &names,
-        &dat_only,
-        false,
-    )?;
+    write_from_capture(&packet_log, &names, &dat_only, false)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(dat_only)?)?;
     assert_eq!(json[0]["name_en"].as_str(), Some("Dat Name"));
     assert!(json[0].get("name").is_none());
 
     let client_strings = temp.path().join("client-strings.json");
-    export_detected_items_from_packet_log_with_client_strings(
-        &packet_log,
-        &names,
-        &client_strings,
-        true,
-    )?;
+    write_from_capture(&packet_log, &names, &client_strings, true)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(client_strings)?)?;
     assert_eq!(json[0]["name"].as_str(), Some("Client Name"));
     Ok(())
@@ -991,10 +990,10 @@ fn official_decoded_names_match_reused_item_id_by_model() -> anyhow::Result<()> 
             "{\"kind\":\"decoded_name\",\"item_id\":77,\"model_id\":202,\"model_file_id\":2002,\"lang\":\"en\",\"name\":\"Second Model\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup::default();
+    let names = ItemTextLookup::default();
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
     let by_model_id = json
         .as_array()
@@ -1020,7 +1019,7 @@ fn official_current_language_can_validate_local_multilingual_names() -> anyhow::
             "{\"kind\":\"decoded_name\",\"item_id\":200,\"lang\":\"fr\",\"name\":\"Hache de Nain\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             1000,
@@ -1033,7 +1032,7 @@ fn official_current_language_can_validate_local_multilingual_names() -> anyhow::
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Dwarven Axe"));
@@ -1055,7 +1054,7 @@ fn official_current_language_can_validate_name_id_after_encoded_decode_miss() ->
             "{\"kind\":\"decoded_name\",\"item_id\":367,\"lang\":\"fr\",\"name\":\"Sceptre luminescent\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             9396,
@@ -1068,7 +1067,7 @@ fn official_current_language_can_validate_name_id_after_encoded_decode_miss() ->
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert_eq!(json[0]["name_en"].as_str(), Some("Luminescent Scepter"));
@@ -1089,7 +1088,7 @@ fn official_generic_names_override_invalid_client_rows() -> anyhow::Result<()> {
             "{\"kind\":\"decoded_name\",\"item_id\":19,\"lang\":\"fr\",\"name\":\"Inconnu\"}\n",
         ),
     )?;
-    let names = RuntimeTextLookup {
+    let names = ItemTextLookup {
         exact_text_ids: BTreeSet::new(),
         by_text_id: BTreeMap::from([(
             8326,
@@ -1102,7 +1101,7 @@ fn official_generic_names_override_invalid_client_rows() -> anyhow::Result<()> {
     };
 
     let out = temp.path().join("items/items.json");
-    export_detected_items_from_packet_log(&packet_log, &names, &out)?;
+    write_from_capture_for_test(&packet_log, &names, &out)?;
     let json: serde_json::Value = serde_json::from_reader(File::open(out)?)?;
 
     assert!(json[0].get("name").is_none());
